@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "myupbit01"
+version = "0.1.0"
+description = ""
+authors = ["User <user@example.com>"]
+readme = "README.md"
+packages = [{include = "myupbit01", from = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+pyupbit = "^0.2.34"
+python-dotenv = "^1.2.1"
+streamlit = "^1.52.2"
+pandas = "^2.3.3"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
