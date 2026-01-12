@@ -41,6 +41,8 @@ class AutoTrader:
     def save_state(self):
         with open(STATE_FILE, 'w', encoding='utf-8') as f:
             json.dump(self.state, f, indent=4, ensure_ascii=False)
+
+    def setup_logging(self):
         if not os.path.exists(LOG_DIR):
             os.makedirs(LOG_DIR)
             
@@ -68,19 +70,6 @@ class AutoTrader:
 
     def log(self, msg):
         self.logger.info(msg)
-
-    def load_state(self):
-        if os.path.exists(STATE_FILE):
-            try:
-                with open(STATE_FILE, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except:
-                return {}
-        return {}
-
-    def save_state(self):
-        with open(STATE_FILE, 'w', encoding='utf-8') as f:
-            json.dump(self.state, f, indent=4, ensure_ascii=False)
 
     def get_tick_size(self, price):
         if price >= 2000000: return 1000
