@@ -23,7 +23,7 @@ class AutoTrader:
         self.last_summary_date = datetime.date.today()
 
     def load_state(self):
-        state = {"slots": []}
+        state = {"slots": [], "cooldowns": {}}
         if os.path.exists(STATE_FILE):
             try:
                 with open(STATE_FILE, 'r', encoding='utf-8') as f:
@@ -36,6 +36,8 @@ class AutoTrader:
                         self.save_state() # Save immediately
                     elif "slots" in loaded:
                         state = loaded
+                        if "cooldowns" not in state:
+                            state["cooldowns"] = {}
             except Exception as e:
                 self.log(f"Error loading state: {e}")
         return state
@@ -99,7 +101,7 @@ class AutoTrader:
         return strict_coins[0] # Return the best one
 
     def reset_state(self):
-        self.state = {"status": "WAITING"}
+        self.state = {"slots": [], "cooldowns": {}}
         self.save_state()
 
     def check_market_condition(self):
@@ -124,12 +126,14 @@ class AutoTrader:
                 # Check daily summary
                 self.check_daily_summary()
                 
+                # Clean expired cooldowns
+                self.clean_cooldowns()
+                
                 # Check Market Condition (Circuit Breaker)
                 is_market_good = self.check_market_condition()
                 
                 # 1. Process existing slots
                 # We iterate a copy to verify/modify safely if needed, though direct access is fine if we don't delete mid-loop
-                # If we remove a slot, we should do it carefully. 
                 # Better approach: Iterate index or copy.
                 active_slots = self.state.get("slots", [])
                 
@@ -166,14 +170,15 @@ class AutoTrader:
         
         self.log("Searching for new target...")
         
-        # Exclude currently held markets
+        # Exclude currently held markets and cooldown markets
         held_markets = [s['market'] for s in self.state['slots'] if 'market' in s]
+        cooldown_markets = self.state.get('cooldowns', {}).keys()
         
         candidates = trend.get_candidates()
         strict_coins = trend.scan_trends(candidates, strict_slope=True)
         
-        # Filter out held markets
-        target_coins = [c for c in strict_coins if c['market'] not in held_markets]
+        # Filter out held markets and cooldown markets
+        target_coins = [c for c in strict_coins if c['market'] not in held_markets and c['market'] not in cooldown_markets]
         
         if not target_coins:
             self.log("No new target found.")
@@ -214,9 +219,35 @@ class AutoTrader:
             self.step_holding(slot)
 
     def remove_slot(self, slot):
+        # Add to cooldown (1 hour)
+        market = slot['market']
+        if 'cooldowns' not in self.state:
+            self.state['cooldowns'] = {}
+            
+        release_time = datetime.datetime.now() + datetime.timedelta(minutes=60)
+        self.state['cooldowns'][market] = release_time.isoformat()
+        self.log(f"Cooldown set for {market} until {release_time.strftime('%H:%M:%S')}")
+        
         # Mark for removal
         slot['status'] = 'DONE'
         # Actual removal happens in main loop
+        
+    def clean_cooldowns(self):
+        if 'cooldowns' not in self.state:
+            return
+            
+        now = datetime.datetime.now()
+        to_remove = []
+        for market, time_str in self.state['cooldowns'].items():
+            release_time = datetime.datetime.fromisoformat(time_str)
+            if now >= release_time:
+                to_remove.append(market)
+                
+        if to_remove:
+            for m in to_remove:
+                del self.state['cooldowns'][m]
+                self.log(f"Cooldown expired for {m}")
+            self.save_state()
 
     def save_trade_history(self, market, buy_price, sell_price, reason, pnl, profit_rate):
         history = []
