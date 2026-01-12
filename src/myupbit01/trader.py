@@ -32,6 +32,8 @@ class AutoTrader:
                     if "status" in loaded and "slots" not in loaded:
                         self.log("Migrating single state to multi-slot state...")
                         state['slots'].append(loaded)
+                        self.state = state # temporarily set for save
+                        self.save_state() # Save immediately
                     elif "slots" in loaded:
                         state = loaded
             except Exception as e:
