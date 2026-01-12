@@ -35,6 +35,14 @@ def main():
         print("Error: API keys not found in .env file.")
         return
 
+    if "your_access_key" in access_key or "your_secret_key" in secret_key:
+        print("Error: Default API keys detected. Please update .env with real keys.")
+        return
+        
+    if len(access_key) < 20 or len(secret_key) < 20: 
+        print("Error: API keys seem too short. Please check .env file.")
+        return
+
     print("Keys loaded successfully.")
     
     try:

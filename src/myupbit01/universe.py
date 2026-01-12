@@ -35,15 +35,15 @@ def get_krw_tickers():
         print(f"Error fetching tickers: {e}")
         return []
 
-def get_active_tickers(min_volume=50_000_000_000):
+def get_active_tickers(top_n=30):
     """
-    Filters tickers based on 24-hour accumulated trading volume.
+    Returns top N tickers based on 24-hour accumulated trading volume.
     
     Args:
-        min_volume (float): Minimum 24h trading volume in KRW (default: 50 billion).
+        top_n (int): Number of top tickers to return (default: 30).
         
     Returns:
-        list: A list of dicts [{'market': 'KRW-BTC', 'korean_name': '비트코인'}, ...]
+        list: A list of dicts [{'market': 'KRW-BTC', 'korean_name': '비트코인', 'volume': 10000000}, ...]
     """
     tickers = get_krw_tickers()
     if not tickers:
@@ -53,7 +53,7 @@ def get_active_tickers(min_volume=50_000_000_000):
     name_map = get_market_names()
 
     url = "https://api.upbit.com/v1/ticker"
-    active_tickers = []
+    all_ticker_data = []
     
     chunk_size = 50
     
@@ -66,21 +66,24 @@ def get_active_tickers(min_volume=50_000_000_000):
             response = requests.get(url, params=params)
             response.raise_for_status()
             data = response.json()
-            
-            for item in data:
-                if item['acc_trade_price_24h'] >= min_volume:
-                    market = item['market']
-                    active_tickers.append({
-                        'market': market,
-                        'korean_name': name_map.get(market, market)
-                    })
-                    
+            all_ticker_data.extend(data)
             time.sleep(0.1) 
-            
         except Exception as e:
             print(f"Error fetching ticker details for batch {i}: {e}")
             
-    return active_tickers
+    # Sort by 24h trading volume (descending)
+    all_ticker_data.sort(key=lambda x: x['acc_trade_price_24h'], reverse=True)
+    
+    top_tickers = []
+    for item in all_ticker_data[:top_n]:
+        market = item['market']
+        top_tickers.append({
+            'market': market,
+            'korean_name': name_map.get(market, market),
+            'volume': item['acc_trade_price_24h']
+        })
+            
+    return top_tickers
 
 if __name__ == "__main__":
     print("Fetching active tickers (Volume >= 50 Billion KRW)...")

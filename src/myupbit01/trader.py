@@ -9,6 +9,9 @@ from myupbit01 import trend
 
 STATE_FILE = "trade_state.json"
 HISTORY_FILE = "trade_history.json"
+CONFIG_FILE = "trader_config.json"
+COMMAND_FILE = "command.json"
+SCAN_RESULTS_FILE = "scan_results.json"
 LOG_DIR = "logs"
 
 class AutoTrader:
@@ -16,12 +19,43 @@ class AutoTrader:
         self.setup_logging()
         self.access_key = os.getenv("UPBIT_ACCESS_KEY")
         self.secret_key = os.getenv("UPBIT_SECRET_KEY")
-        self.trade_amount = float(os.getenv("TRADE_AMOUNT", 10000))
-        self.max_slots = int(os.getenv("MAX_SLOTS", 3))
-        self.cooldown_minutes = int(os.getenv("COOLDOWN_MINUTES", 60))
+        if not self.access_key or not self.secret_key:
+            self.log("CRITICAL ERROR: API Keys are missing in .env file.")
+            print("Please set UPBIT_ACCESS_KEY and UPBIT_SECRET_KEY in .env")
+            import sys; sys.exit(1)
+            
         self.upbit = pyupbit.Upbit(self.access_key, self.secret_key)
+        
+        # Load constraints
+        self.config = {
+            "TRADE_AMOUNT": float(os.getenv("TRADE_AMOUNT", 10000)),
+            "MAX_SLOTS": int(os.getenv("MAX_SLOTS", 3)),
+            "COOLDOWN_MINUTES": int(os.getenv("COOLDOWN_MINUTES", 60)),
+            "PROFIT_TARGET": 0.005,
+            "STOP_LOSS": -0.02,
+            "TRAILING_STOP_CALLBACK": 0.002
+        }
+        self.load_config()
+        
         self.state = self.load_state()
         self.last_summary_date = datetime.date.today()
+        self.last_config_check = 0
+        self.is_active = True # Master switch
+
+    def load_config(self):
+        if os.path.exists(CONFIG_FILE):
+            try:
+                with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                    new_config = json.load(f)
+                    # Update config with new values, keeping defaults if key missing
+                    self.config.update(new_config)
+            except Exception as e:
+                self.log(f"Error loading config: {e}")
+                
+        # Update convenient attributes
+        self.trade_amount = float(self.config.get("TRADE_AMOUNT", 10000))
+        self.max_slots = int(self.config.get("MAX_SLOTS", 3))
+        self.cooldown_minutes = int(self.config.get("COOLDOWN_MINUTES", 60))
 
     def load_state(self):
         state = {"slots": [], "cooldowns": {}}
@@ -121,9 +155,16 @@ class AutoTrader:
         return True
 
     def run(self):
-        self.log(f"AutoTrader started with amount: {self.trade_amount} KRW, Max Slots: {self.max_slots}")
+        self.log(f"AutoTrader started. Max Slots: {self.max_slots}")
         while True:
             try:
+                # Reload config every 5 seconds
+                now = time.time()
+                if now - self.last_config_check > 5:
+                    self.load_config()
+                    self.process_commands() # Check for commands
+                    self.last_config_check = now
+
                 # Check daily summary
                 self.check_daily_summary()
                 
@@ -150,8 +191,8 @@ class AutoTrader:
                 if len(self.state['slots']) != len(active_slots):
                     self.save_state()
                 
-                # 2. Search for new target if slots available and market is good
-                if is_market_good and len(self.state['slots']) < self.max_slots:
+                # 2. Search for new target (Always scan for dashboard, buy only if slots open)
+                if is_market_good:
                     self.try_search_and_enter()
                     
                 time.sleep(1)
@@ -159,38 +200,66 @@ class AutoTrader:
                 self.log(f"Error in main loop: {e}")
                 time.sleep(5)
 
+    def save_scan_results(self, candidates):
+        try:
+            with open(SCAN_RESULTS_FILE, 'w', encoding='utf-8') as f:
+                json.dump({
+                    "timestamp": datetime.datetime.now().isoformat(),
+                    "candidates": candidates
+                }, f, indent=4, ensure_ascii=False)
+        except Exception as e:
+            self.log(f"Error saving scan results: {e}")
+
     def try_search_and_enter(self):
         # Throttle search to avoid spamming API if no target found
         now = time.time()
         last_search = self.state.get('last_search_time', 0)
-        if now - last_search < 10: 
+        # Scan every 30 seconds if full, or 10 seconds if empty? Let's keep 20s default for now
+        if now - last_search < 20: 
             return
 
         self.state['last_search_time'] = now
-        # We don't verify save_state here to avoid IO, just in memory is fine for throttling
         
         self.log("Searching for new target...")
         
-        # Exclude currently held markets and cooldown markets
+        candidates = trend.get_candidates()
+        
+        # Scored scanning
+        scored_coins = trend.scan_trends(candidates)
+        
+        # Save results for UI
+        self.save_scan_results(scored_coins)
+        
+        # STOP here if slots are full
+        if len(self.state.get('slots',[])) >= self.max_slots:
+            return
+
+        # Filter out held markets and cooldown markets
         held_markets = [s['market'] for s in self.state['slots'] if 'market' in s]
         cooldown_markets = self.state.get('cooldowns', {}).keys()
         
-        candidates = trend.get_candidates()
-        strict_coins = trend.scan_trends(candidates, strict_slope=True)
-        
         # Filter out held markets and cooldown markets
-        target_coins = [c for c in strict_coins if c['market'] not in held_markets and c['market'] not in cooldown_markets]
+        available_coins = [c for c in scored_coins if c['market'] not in held_markets and c['market'] not in cooldown_markets]
         
-        if not target_coins:
+        if not available_coins:
             self.log("No new target found.")
             return
 
-        # Sort by disparity
-        target_coins.sort(key=lambda x: x['disparity_5_20'])
-        target = target_coins[0]
+        # Sort by score (descending)
+        # scan_trends already returns sorted by score, but re-sort to be sure
+        available_coins.sort(key=lambda x: x['score'], reverse=True)
+        
+        target = available_coins[0]
         market = target['market']
+        score = target['score']
+        
+        # Minimum Score Threshold (e.g. 20)
+        # Aligned(5)+Slope(10)+Vol(5) = 20. Or AlignedFull(10)+Slope(10)=20.
+        if score < 20:
+             self.log(f"Best target {market} score ({score}) is too low (min 20). Skipping.")
+             return
 
-        self.log(f"Target found: {target['korean_name']} ({market})")
+        self.log(f"Target found: {target['korean_name']} ({market}) Score: {score}")
         
         current_price = pyupbit.get_current_price(market)
         tick = self.get_tick_size(current_price)
@@ -321,7 +390,7 @@ class AutoTrader:
             self.remove_slot(slot)
             return
             
-        print(f"Slot {market}: Waiting for buy order to fill... ({int(elapsed)}s elapsed)", end='\r')
+        print(f"Slot {market}: Waiting for buy order to fill... ({int(elapsed)}s elapsed)")
         
         # Check execution
         try:
@@ -356,8 +425,13 @@ class AutoTrader:
         highest_price = slot['highest_price']
         profit_rate = (curr_price - avg_price) / avg_price
         
-        print(f"Slot {market}: {curr_price}, Avg: {avg_price:.0f}, Ret: {profit_rate*100:.2f}%", end='\r')
+        print(f"Slot {market}: {curr_price}, Avg: {avg_price:.0f}, Ret: {profit_rate*100:.2f}%")
         
+        # Settings from config
+        stop_loss = self.config.get("STOP_LOSS", -0.02)
+        profit_target = self.config.get("PROFIT_TARGET", 0.005)
+        trailing_callback = self.config.get("TRAILING_STOP_CALLBACK", 0.002)
+
         # 1. Defense Strategy
         # 1-1. Sudden Drop (5min candle -1%)
         # Check only once per minute to save API calls
@@ -376,8 +450,8 @@ class AutoTrader:
                      self.sell_market(slot, "Sudden Drop", profit_rate)
                      return
 
-        # 1-2. Stop Loss (-2%)
-        if profit_rate <= -0.02:
+        # 1-2. Stop Loss
+        if profit_rate <= stop_loss:
             self.log(f"DEFENSE: Stop loss triggered for {market} ({profit_rate*100:.2f}%). Selling...")
             self.sell_market(slot, "Stop Loss", profit_rate)
             return
@@ -402,13 +476,13 @@ class AutoTrader:
             return
 
         # 3. Take Profit (Trailing Stop)
-        # Active only if max profit reached +0.5%
+        # Active only if max profit reached target
         max_profit_rate = (highest_price - avg_price) / avg_price
         
-        if max_profit_rate >= 0.005:
+        if max_profit_rate >= profit_target:
             # Drop from highest
             drop_rate = (highest_price - curr_price) / highest_price
-            if drop_rate >= 0.002: # 0.2% drop
+            if drop_rate >= trailing_callback: 
                 self.log(f"PROFIT: Trailing stop triggered for {market}. High: {highest_price}, Curr: {curr_price}. Selling...")
                 self.sell_market(slot, "Trailing Stop", profit_rate)
                 return
@@ -435,6 +509,40 @@ class AutoTrader:
         else:
             self.log(f"No balance to sell for {market}?")
             self.remove_slot(slot)
+
+    def process_commands(self):
+        if os.path.exists(COMMAND_FILE):
+            try:
+                with open(COMMAND_FILE, 'r', encoding='utf-8') as f:
+                    cmd_data = json.load(f)
+                
+                # Process command 
+                if cmd_data:
+                    cmd_type = cmd_data.get('command')
+                    
+                    if cmd_type == 'panic_sell':
+                        market = cmd_data.get('market')
+                        self.log(f"COMMAND: Panic Sell received for {market}")
+                        # Find slot
+                        slots = self.state.get('slots', [])
+                        target_slot = next((s for s in slots if s['market'] == market), None)
+                        if target_slot:
+                             self.sell_market(target_slot, "Panic Sell (Command)", 0.0)
+                        else:
+                            self.log(f"COMMAND FAILED: Slot not found for {market}")
+                            
+                    elif cmd_type == 'master_stop':
+                        self.log("COMMAND: Master Stop executed. New entries paused.")
+                        self.is_active = False
+                        
+                    elif cmd_type == 'master_start':
+                        self.log("COMMAND: Master Start executed. Resuming.")
+                        self.is_active = True
+                
+                # Clear command file
+                os.remove(COMMAND_FILE)
+            except Exception as e:
+                self.log(f"Error processing command: {e}")
 
     def update_avg_price(self, slot):
         market = slot['market']
