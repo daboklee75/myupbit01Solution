@@ -18,6 +18,7 @@ class AutoTrader:
         self.secret_key = os.getenv("UPBIT_SECRET_KEY")
         self.trade_amount = float(os.getenv("TRADE_AMOUNT", 10000))
         self.max_slots = int(os.getenv("MAX_SLOTS", 3))
+        self.cooldown_minutes = int(os.getenv("COOLDOWN_MINUTES", 60))
         self.upbit = pyupbit.Upbit(self.access_key, self.secret_key)
         self.state = self.load_state()
         self.last_summary_date = datetime.date.today()
@@ -224,7 +225,7 @@ class AutoTrader:
         if 'cooldowns' not in self.state:
             self.state['cooldowns'] = {}
             
-        release_time = datetime.datetime.now() + datetime.timedelta(minutes=60)
+        release_time = datetime.datetime.now() + datetime.timedelta(minutes=self.cooldown_minutes)
         self.state['cooldowns'][market] = release_time.isoformat()
         self.log(f"Cooldown set for {market} until {release_time.strftime('%H:%M:%S')}")
         
