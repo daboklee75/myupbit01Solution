@@ -460,7 +460,8 @@ class AutoTrader:
         entry_time = datetime.datetime.fromisoformat(slot['entry_time'])
         elapsed_mins = (datetime.datetime.now() - entry_time).total_seconds() / 60
         
-        if elapsed_mins >= 30 and profit_rate < 0 and not slot.get('add_buy_done', False):
+        add_buy_threshold = self.config.get("ADD_BUY_THRESHOLD", -0.01)
+        if elapsed_mins >= 30 and profit_rate <= add_buy_threshold and not slot.get('add_buy_done', False):
             self.log(f"EXIT STRATEGY: 30 mins w/ loss for {market}. Executing Add-buy...")
             ret = self.upbit.buy_market_order(market, self.trade_amount)
             if ret and 'uuid' in ret:

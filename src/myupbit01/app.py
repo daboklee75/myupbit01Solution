@@ -70,7 +70,8 @@ def main():
                 "COOLDOWN_MINUTES": 60,
                 "PROFIT_TARGET": 0.005,
                 "STOP_LOSS": -0.02,
-                "TRAILING_STOP_CALLBACK": 0.002
+                "TRAILING_STOP_CALLBACK": 0.002,
+                "ADD_BUY_THRESHOLD": -0.01
             }
 
         with st.form("config_form"):
@@ -80,6 +81,7 @@ def main():
             profit_target = st.slider("Profit Target (%)", 0.1, 5.0, float(config.get("PROFIT_TARGET", 0.005)) * 100) / 100
             stop_loss = st.slider("Stop Loss (%)", -10.0, -0.1, float(config.get("STOP_LOSS", -0.02)) * 100) / 100
             trailing_callback = st.slider("Trailing Callback (%)", 0.1, 2.0, float(config.get("TRAILING_STOP_CALLBACK", 0.002)) * 100) / 100
+            add_buy_threshold = st.slider("Add-Buy Threshold (%)", -10.0, -0.1, float(config.get("ADD_BUY_THRESHOLD", -0.01)) * 100) / 100
             
             if st.form_submit_button("Update Config"):
                 new_config = {
@@ -88,7 +90,8 @@ def main():
                     "COOLDOWN_MINUTES": cooldown,
                     "PROFIT_TARGET": profit_target,
                     "STOP_LOSS": stop_loss,
-                    "TRAILING_STOP_CALLBACK": trailing_callback
+                    "TRAILING_STOP_CALLBACK": trailing_callback,
+                    "ADD_BUY_THRESHOLD": add_buy_threshold
                 }
                 save_json(CONFIG_FILE, new_config)
                 st.success("Config updated!")
