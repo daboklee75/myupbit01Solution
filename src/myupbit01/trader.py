@@ -154,8 +154,48 @@ class AutoTrader:
             print(f"Error checking market condition: {e}")
         return True
 
+    def sync_slots_with_balances(self):
+        try:
+            balances = self.upbit.get_balances()
+            current_slot_markets = [s['market'] for s in self.state['slots']]
+            
+            for b in balances:
+                currency = b['currency']
+                if currency in ["KRW", "USDT", "XAUT"]: continue
+                
+                market = f"KRW-{currency}"
+                balance = float(b['balance'])
+                avg_buy_price = float(b['avg_buy_price'])
+                
+                # Minimum value check (e.g. > 5000 KRW) to ignore dust
+                if balance * avg_buy_price < 5000: continue
+                
+                if market not in current_slot_markets:
+                    self.log(f"RECOVERY: Found orphan coin {market} in balance. Adding to slots.")
+                    
+                    curr_price = pyupbit.get_current_price(market)
+                    
+                    new_slot = {
+                        "status": "HOLDING",
+                        "market": market,
+                        "buy_order_uuid": "recovered",
+                        "order_price": avg_buy_price,
+                        "avg_buy_price": avg_buy_price,
+                        "order_time": datetime.datetime.now().isoformat(),
+                        "entry_time": datetime.datetime.now().isoformat(),
+                        "highest_price": curr_price if curr_price else avg_buy_price,
+                        "add_buy_done": False
+                    }
+                    self.state['slots'].append(new_slot)
+                    current_slot_markets.append(market)
+            
+            self.save_state()
+        except Exception as e:
+            self.log(f"Error syncing balances: {e}")
+
     def run(self):
         self.log(f"AutoTrader started. Max Slots: {self.max_slots}")
+        self.sync_slots_with_balances()
         while True:
             try:
                 # Reload config every 5 seconds
@@ -222,13 +262,17 @@ class AutoTrader:
         
         self.log("Searching for new target...")
         
-        candidates = trend.get_candidates()
+        min_volatility = float(self.config.get("MIN_VOLATILITY", 0.01))
+        candidates = trend.get_candidates(min_volatility=min_volatility)
         
         # Scored scanning
-        scored_coins = trend.scan_trends(candidates)
+        scored_coins = trend.scan_trends(candidates, config=self.config)
         
         # Save results for UI
         self.save_scan_results(scored_coins)
+        
+        # [NEW] Save history for analysis (Only Top Candidates)
+        trend.save_scan_history(scored_coins, filename=os.path.join(LOG_DIR, "scan_history.csv"))
         
         # STOP here if slots are full
         if len(self.state.get('slots',[])) >= self.max_slots:
@@ -253,31 +297,31 @@ class AutoTrader:
         market = target['market']
         score = target['score']
         
-        # Minimum Score Threshold (e.g. 20)
-        # Aligned(5)+Slope(10)+Vol(5) = 20. Or AlignedFull(10)+Slope(10)=20.
-        if score < 20:
-             self.log(f"Best target {market} score ({score}) is too low (min 20). Skipping.")
+        # Minimum Score Threshold (Configurable, Default 30)
+        # 20 was too low (allowing weak trends).
+        min_score = float(self.config.get("MIN_ENTRY_SCORE", 30))
+        if score < min_score:
+             self.log(f"Best target {market} score ({score}) is too low (min {min_score}). Skipping.")
              return
 
         self.log(f"Target found: {target['korean_name']} ({market}) Score: {score}")
         
-        current_price = pyupbit.get_current_price(market)
-        tick = self.get_tick_size(current_price)
-        buy_price = current_price - tick # 1 tick lower
+        # [MODIFIED] Use Market Order for immediate execution
+        # Removed tick size calculation and limit order logic
         
-        # Place limit order
-        ret = self.upbit.buy_limit_order(market, buy_price, self.trade_amount / buy_price)
+        # Place market buy order
+        ret = self.upbit.buy_market_order(market, self.trade_amount)
         if ret and 'uuid' in ret:
             new_slot = {
                 "status": "BUY_ORDER_WAITING",
                 "market": market,
                 "buy_order_uuid": ret['uuid'],
-                "order_price": buy_price,
+                "order_price": 0, # Will be updated after filling
                 "order_time": datetime.datetime.now().isoformat()
             }
             self.state['slots'].append(new_slot)
             self.save_state()
-            self.log(f"Buy order placed for {market}. Slot occupied.")
+            self.log(f"Market buy order placed for {market}. Slot occupied.")
         else:
             self.log(f"Failed to place order for {market}: {ret}")
 
@@ -405,8 +449,22 @@ class AutoTrader:
                 slot['add_buy_done'] = False
                 self.save_state()
             elif order and order['state'] == 'cancel':
-                self.log(f"Order for {market} canceled externally.")
-                self.remove_slot(slot)
+                # Check if any amount was actually filled despite cancel
+                executed_vol = float(order.get('executed_volume', 0))
+                if executed_vol > 0:
+                    self.log(f"Order {market} canceled but partially filled ({executed_vol}). Treating as success.")
+                    slot['status'] = "HOLDING"
+                    # We might not know exact price, so fetch from balance
+                    time.sleep(1) 
+                    self.update_avg_price(slot)
+                    slot['entry_time'] = datetime.datetime.now().isoformat()
+                    # Initialize highest_price with current price or avg price
+                    slot['highest_price'] = slot['avg_buy_price']
+                    slot['add_buy_done'] = False
+                    self.save_state()
+                else: 
+                    self.log(f"Order for {market} canceled externally (0 fill).")
+                    self.remove_slot(slot)
         except Exception as e:
             self.log(f"Error checking order {market}: {e}")
 
@@ -456,25 +514,45 @@ class AutoTrader:
             self.sell_market(slot, "Stop Loss", profit_rate)
             return
 
-        # 2. Add-buy Strategy (30 mins passed, loss, not yet added)
+        # 2. Add-buy Strategy (Refined)
         entry_time = datetime.datetime.fromisoformat(slot['entry_time'])
         elapsed_mins = (datetime.datetime.now() - entry_time).total_seconds() / 60
         
-        add_buy_threshold = self.config.get("ADD_BUY_THRESHOLD", -0.01)
-        if elapsed_mins >= 30 and profit_rate <= add_buy_threshold and not slot.get('add_buy_done', False):
-            self.log(f"EXIT STRATEGY: 30 mins w/ loss for {market}. Executing Add-buy...")
-            ret = self.upbit.buy_market_order(market, self.trade_amount)
-            if ret and 'uuid' in ret:
-                # Wait a bit for order to fill and balances to update
-                time.sleep(2)
-                # Recalculate average price (fetch from upbit balance)
-                self.update_avg_price(slot)
-                slot['add_buy_done'] = True
-                # Reset highest price to current to restart trailing logic
-                slot['highest_price'] = curr_price 
-                self.save_state()
-                self.log(f"Add-buy complete for {market}. Avg price updated.")
-            return
+        # New Config Params
+        add_buy_wait = int(self.config.get("ADD_BUY_WAIT_MINUTES", 15)) # Default 15 mins
+        add_buy_threshold = float(self.config.get("ADD_BUY_THRESHOLD", -0.015)) # Default -1.5%
+        add_buy_min_score = float(self.config.get("ADD_BUY_MIN_SCORE", 20.0)) # Default Score 20
+        
+        if elapsed_mins >= add_buy_wait and profit_rate <= add_buy_threshold and not slot.get('add_buy_done', False):
+             # [Re-check Score] Is this coin still valid?
+             t_data = trend.analyze_trend(market, 
+                                          vol_spike_ratio=float(self.config.get("VOL_SPIKE_RATIO", 3.0)),
+                                          rsi_threshold=float(self.config.get("RSI_THRESHOLD", 70.0)))
+             
+             if t_data:
+                 # Calculate score
+                 ts_score, _ = trend.analyze_trade_strength(market, buying_power_threshold=float(self.config.get("BUYING_POWER_THRESHOLD", 0.55)))
+                 current_score = trend.calculate_score(t_data, ts_score, self.config)
+                 
+                 self.log(f"EXIT STRATEGY Check: {market} fell to {profit_rate*100:.2f}%. Current Score: {current_score}")
+                 
+                 if current_score >= add_buy_min_score:
+                    self.log(f"-> COND MET: Score {current_score} >= {add_buy_min_score}. Executing Add-buy...")
+                    ret = self.upbit.buy_market_order(market, self.trade_amount)
+                    if ret and 'uuid' in ret:
+                        time.sleep(2)
+                        self.update_avg_price(slot)
+                        slot['add_buy_done'] = True
+                        slot['highest_price'] = curr_price 
+                        self.save_state()
+                        self.log(f"Add-buy complete for {market}.")
+                    else:
+                        self.log(f"Add-buy failed for {market}: {ret}")
+                 else:
+                     self.log(f"-> STOP: Score {current_score} < {add_buy_min_score}. Skip Add-buy.")
+             else:
+                 self.log(f"-> STOP: Trend analysis failed for {market}. Skip Add-buy.")
+        
 
         # 3. Take Profit (Trailing Stop)
         # Active only if max profit reached target

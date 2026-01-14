@@ -78,20 +78,43 @@ def main():
             trade_amount = st.number_input("Trade Amount (KRW)", value=float(config.get("TRADE_AMOUNT", 10000)))
             max_slots = st.number_input("Max Slots", value=int(config.get("MAX_SLOTS", 3)))
             cooldown = st.number_input("Cooldown (min)", value=int(config.get("COOLDOWN_MINUTES", 60)))
-            profit_target = st.slider("Profit Target (%)", 0.1, 5.0, float(config.get("PROFIT_TARGET", 0.005)) * 100) / 100
+            # PROFIT_TARGET removed as per instruction
             stop_loss = st.slider("Stop Loss (%)", -10.0, -0.1, float(config.get("STOP_LOSS", -0.02)) * 100) / 100
             trailing_callback = st.slider("Trailing Callback (%)", 0.1, 2.0, float(config.get("TRAILING_STOP_CALLBACK", 0.002)) * 100) / 100
-            add_buy_threshold = st.slider("Add-Buy Threshold (%)", -10.0, -0.1, float(config.get("ADD_BUY_THRESHOLD", -0.01)) * 100) / 100
+            
+            st.divider()
+            st.subheader("Add-Buy Strategy")
+            add_buy_wait = st.number_input("Add-Buy Wait (min)", value=int(config.get("ADD_BUY_WAIT_MINUTES", 15)))
+            add_buy_threshold = st.slider("Add-Buy Threshold (%)", -10.0, -0.1, float(config.get("ADD_BUY_THRESHOLD", -0.015)) * 100) / 100
+            add_buy_min_score = st.number_input("Add-Buy Min Score", value=int(config.get("ADD_BUY_MIN_SCORE", 20)))
+            
+            st.divider()
+            st.subheader("Entry Strategy")
+            min_entry_score = st.number_input("Min Entry Score", value=int(config.get("MIN_ENTRY_SCORE", 30)), help="Minimum score required to buy a new coin (Default 30)")
+            
+            st.divider()
+            st.subheader("Strategy Settings")
+            min_volatility = st.slider("Min Volatility (%)", 0.1, 5.0, float(config.get("MIN_VOLATILITY", 0.01)) * 100) / 100
+            vol_spike_ratio = st.number_input("Volume Spike Ratio (x)", value=float(config.get("VOL_SPIKE_RATIO", 3.0)))
+            rsi_threshold = st.number_input("RSI Threshold", value=float(config.get("RSI_THRESHOLD", 70.0)))
+            bp_threshold = st.slider("Buying Power Threshold (%)", 50.0, 90.0, float(config.get("BUYING_POWER_THRESHOLD", 0.55)) * 100) / 100
             
             if st.form_submit_button("Update Config"):
                 new_config = {
                     "TRADE_AMOUNT": trade_amount,
                     "MAX_SLOTS": max_slots,
                     "COOLDOWN_MINUTES": cooldown,
-                    "PROFIT_TARGET": profit_target,
+                    "PROFIT_TARGET": float(config.get("PROFIT_TARGET", 0.005)),
                     "STOP_LOSS": stop_loss,
                     "TRAILING_STOP_CALLBACK": trailing_callback,
-                    "ADD_BUY_THRESHOLD": add_buy_threshold
+                    "ADD_BUY_WAIT_MINUTES": add_buy_wait,
+                    "ADD_BUY_THRESHOLD": add_buy_threshold,
+                    "ADD_BUY_MIN_SCORE": add_buy_min_score,
+                    "MIN_ENTRY_SCORE": min_entry_score,
+                    "MIN_VOLATILITY": min_volatility,
+                    "VOL_SPIKE_RATIO": vol_spike_ratio,
+                    "RSI_THRESHOLD": rsi_threshold,
+                    "BUYING_POWER_THRESHOLD": bp_threshold
                 }
                 save_json(CONFIG_FILE, new_config)
                 st.success("Config updated!")
@@ -146,20 +169,41 @@ def main():
                 invested_amount = balance * avg_price
                 current_value = balance * current_price
                 
+                # Calculate Profit & Trailing Info
+                entry_price = float(slot.get('avg_buy_price', 0))
+                highest_price = float(slot.get('highest_price', entry_price)) # Need to ensure trader saves this
                 profit_rate = 0.0
-                if avg_price > 0 and current_price > 0:
-                    profit_rate = (current_price - avg_price) / avg_price
+                
+                if entry_price > 0 and current_price > 0:
+                    profit_rate = (current_price - entry_price) / entry_price
+                    
+                # Trailing Check
+                profit_target = float(config.get("PROFIT_TARGET", 0.005))
+                max_profit_rate = 0.0
+                if entry_price > 0:
+                    max_profit_rate = (highest_price - entry_price) / entry_price
+
+                is_trailing_active = max_profit_rate >= profit_target
                 
                 with st.container(border=True):
-                    c1, c2, c3, c4, c5, c6 = st.columns([2, 2, 2, 2, 2, 2])
-                    c1.metric("Market", market, status)
-                    c2.metric("Return", f"{profit_rate*100:.2f}%", f"{current_value - invested_amount:,.0f} KRW")
-                    c3.metric("Current Price", f"{current_price:,.0f}")
-                    c4.metric("Entry Price", f"{avg_price:,.0f}")
-                    c5.metric("Invested", f"{invested_amount:,.0f} KRW")
+                    # Header with Status Badge
+                    c_head1, c_head2 = st.columns([3, 1])
+                    title_md = f"**{market}** ({status})"
+                    if is_trailing_active:
+                        title_md += " 🟢 **Trailing Active**"
+                    c_head1.markdown(title_md)
                     
-                    if c6.button("🚨 Panic Sell", key=f"panic_{market}"):
+                    if c_head2.button("🚨 Panic Sell", key=f"panic_{market}"):
                         send_command("panic_sell", market=market)
+
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric("Return", f"{profit_rate*100:.2f}%", f"{current_value - invested_amount:,.0f} KRW")
+                    c2.metric("Current Price", f"{current_price:,.0f}", f"High: {highest_price:,.0f}")
+                    c3.metric("Entry Price", f"{entry_price:,.0f}")
+                    c4.metric("Invested", f"{invested_amount:,.0f} KRW")
+                    
+                    if is_trailing_active:
+                        st.progress(min(max_profit_rate / (profit_target * 2), 1.0), text=f"Max Profit: {max_profit_rate*100:.2f}% (Target: {profit_target*100:.2f}%)")
 
         st.subheader("Cooldowns")
         st.write(state.get("cooldowns", {}))
@@ -174,13 +218,15 @@ def main():
         if candidates:
             df_scan = pd.DataFrame(candidates)
             # Reorder cols
-            cols = ['korean_name', 'market', 'score', 'price', 'is_aligned_full', 'sma5_slope_up', 'volatility_rising', 'adx', 'vol_spike']
+            df_scan = pd.DataFrame(candidates)
+            # Reorder cols
+            cols = ['korean_name', 'score', 'rsi', 'buy_ratio', 'vol_spike', 'price', 'price_change_1m']
             # Filter cols that exist
             cols = [c for c in cols if c in df_scan.columns]
             
             st.dataframe(df_scan[cols], use_container_width=True)
             
-            st.caption("Score Guide: Aligned(5/10) + Slope(10) + Vol(5) + ADX(5) + Spike(10) + Orderbook(5) + Trade(10)")
+            st.caption("Score Guide: VolSpike(20) + Momentum(10) + BuyPower(10) + RSI(5) + Trend(5)")
         else:
             st.info("No candidates found in last scan.")
 
@@ -239,7 +285,99 @@ def main():
         st.subheader("Daily History")
         if isinstance(history, list) and history:
             df_hist = pd.DataFrame(history)
-            st.dataframe(df_hist.sort_values('time', ascending=False), use_container_width=True)
+            
+            # [NEW] Date Filtering
+            # Ensure date column is datetime or comparable string. 'date' is YYYY-MM-DD string.
+            if 'date' in df_hist.columns:
+                df_hist['date_dt'] = pd.to_datetime(df_hist['date']).dt.date
+                
+                # Date Input (Default: Today)
+                today = datetime.date.today()
+                col_d1, col_d2 = st.columns([1, 2])
+                
+                with col_d1:
+                    # Single date or range? User asked for "Period or Date".
+                    # Let's provide a mode selector or just a date input that accepts range.
+                    # st.date_input with tuple logs range.
+                    selected_date = st.date_input(
+                        "📅 날짜 선택 (Period Selection)", 
+                        (today, today), # Default range: Today only
+                        format="YYYY-MM-DD"
+                    )
+                
+                # Filter Logic
+                if isinstance(selected_date, tuple):
+                    if len(selected_date) == 2:
+                        start_date, end_date = selected_date
+                        mask = (df_hist['date_dt'] >= start_date) & (df_hist['date_dt'] <= end_date)
+                        df_filtered = df_hist.loc[mask]
+                        date_label = f"{start_date} ~ {end_date}"
+                    elif len(selected_date) == 1:
+                        start_date = selected_date[0]
+                        mask = df_hist['date_dt'] == start_date
+                        df_filtered = df_hist.loc[mask]
+                        date_label = f"{start_date}"
+                    else:
+                        df_filtered = df_hist
+                        date_label = "All Time"
+                else:
+                    # Single date
+                    mask = df_hist['date_dt'] == selected_date
+                    df_filtered = df_hist.loc[mask]
+                    date_label = f"{selected_date}"
+            else:
+                df_filtered = df_hist
+                date_label = "Total"
+
+            # [NEW] Aggregated Stats (Filtered)
+            total_pnl = df_filtered['pnl'].sum() if not df_filtered.empty else 0
+            total_trades = len(df_filtered)
+            wins = len(df_filtered[df_filtered['pnl'] > 0]) if not df_filtered.empty else 0
+            win_rate = (wins / total_trades * 100) if total_trades > 0 else 0.0
+
+            # Display Stats
+            st.markdown(f"### 📈 수익 요약 ({date_label})")
+            col_s1, col_s2, col_s3 = st.columns(3)
+            col_s1.metric("총 손익 (Net PnL)", f"{total_pnl:,.0f} KRW", delta_color="normal")
+            col_s2.metric("총 거래 횟수", f"{total_trades}회")
+            col_s3.metric("승률 (Win Rate)", f"{win_rate:.1f}%")
+            
+            st.divider()
+
+            # Function to generate analysis comment
+            def generate_analysis(row):
+                reason = row.get('reason', '')
+                pnl_rate = row.get('profit_rate', 0)
+                
+                if "Trailing Stop" in reason:
+                    return "🟢 [성공] 목표 수익 도달 후 익절"
+                elif "Stop Loss" in reason:
+                    return "🔴 [손절] 손실 제한 매도 실행"
+                elif "Sudden Drop" in reason:
+                    return "🛡️ [방어] 급락 감지되어 긴급 매도"
+                elif pnl_rate > 0:
+                    return "🟢 [익절] 수익 실현"
+                else:
+                    return "⚪ [매도] 기타 사유"
+
+            # Apply Value Additions
+            if not df_filtered.empty:
+                df_filtered = df_filtered.copy() # Avoid SettingWithCopyWarning
+                df_filtered['Analysis'] = df_filtered.apply(generate_analysis, axis=1)
+                df_filtered['Return (%)'] = df_filtered['profit_rate'].apply(lambda x: f"{x*100:+.2f}%")
+                df_filtered['PnL (KRW)'] = df_filtered['pnl'].apply(lambda x: f"{x:,.0f}")
+                df_filtered['Sell Price'] = df_filtered['sell_price'].apply(lambda x: f"{x:,.0f}")
+                df_filtered['Buy Price'] = df_filtered['buy_price'].apply(lambda x: f"{x:,.0f}")
+                
+                # Select and Rename Columns
+                display_cols = ['time', 'market', 'Analysis', 'Return (%)', 'PnL (KRW)', 'reason', 'Sell Price', 'Buy Price']
+                df_final = df_filtered[display_cols].rename(columns={
+                    'time': 'Time', 'market': 'Market', 'reason': 'Reason'
+                })
+                
+                st.dataframe(df_final.sort_values('Time', ascending=False), use_container_width=True)
+            else:
+                 st.info(f"No trades found for {date_label}.")
         else:
             st.info("No history.")
 

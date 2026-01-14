@@ -35,12 +35,13 @@ def get_krw_tickers():
         print(f"Error fetching tickers: {e}")
         return []
 
-def get_active_tickers(top_n=30):
+def get_active_tickers(top_n=30, min_volatility=0.01):
     """
     Returns top N tickers based on 24-hour accumulated trading volume.
     
     Args:
         top_n (int): Number of top tickers to return (default: 30).
+        min_volatility (float): Minimum absolute change rate (default: 0.01 = 1%).
         
     Returns:
         list: A list of dicts [{'market': 'KRW-BTC', 'korean_name': '비트코인', 'volume': 10000000}, ...]
@@ -74,14 +75,33 @@ def get_active_tickers(top_n=30):
     # Sort by 24h trading volume (descending)
     all_ticker_data.sort(key=lambda x: x['acc_trade_price_24h'], reverse=True)
     
+    # [MODIFIED] Filter out stablecoins and low volatility coins
+    EXCLUDE_TICKERS = ['KRW-USDT', 'KRW-XAUT', 'KRW-USDC']
+
     top_tickers = []
-    for item in all_ticker_data[:top_n]:
+    count = 0
+    
+    for item in all_ticker_data:
         market = item['market']
+        
+        # 1. Blacklist check
+        if market in EXCLUDE_TICKERS:
+            continue
+            
+        # 2. Volatility check (Must move at least 1%)
+        # signed_change_rate is e.g. 0.05 for 5%
+        if abs(item['signed_change_rate']) < min_volatility:
+            continue
+
         top_tickers.append({
             'market': market,
             'korean_name': name_map.get(market, market),
             'volume': item['acc_trade_price_24h']
         })
+        
+        count += 1
+        if count >= top_n:
+            break
             
     return top_tickers
 
