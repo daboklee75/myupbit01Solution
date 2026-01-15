@@ -51,5 +51,16 @@ def main():
     except KeyboardInterrupt:
         print("Terminating...")
 
+import logging
+from myupbit01.logger import setup_logger
+
 if __name__ == "__main__":
-    main()
+    setup_logger()
+    logger = logging.getLogger("MyUpbit")
+    logger.info("=== Program Started ===")
+    try:
+        main()
+    except Exception as e:
+        logger.error(f"Program crashed: {e}", exc_info=True)
+    finally:
+        logger.info("=== Program Ended ===")

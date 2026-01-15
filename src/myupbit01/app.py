@@ -59,83 +59,64 @@ def main():
 
     # Sidebar: Configuration & Control
     with st.sidebar:
-        st.header("⚙️ Settings")
+        st.header("⚙️ 설정 (Settings)")
         
         # Load Config
         config = load_json(CONFIG_FILE)
         if not config:
-            config = {
-                "TRADE_AMOUNT": 10000,
-                "MAX_SLOTS": 3,
-                "COOLDOWN_MINUTES": 60,
-                "PROFIT_TARGET": 0.005,
-                "STOP_LOSS": -0.02,
-                "TRAILING_STOP_CALLBACK": 0.002,
-                "ADD_BUY_THRESHOLD": -0.01
-            }
+            config = {}
 
         with st.form("config_form"):
-            trade_amount = st.number_input("Trade Amount (KRW)", value=float(config.get("TRADE_AMOUNT", 10000)))
-            max_slots = st.number_input("Max Slots", value=int(config.get("MAX_SLOTS", 3)))
-            cooldown = st.number_input("Cooldown (min)", value=int(config.get("COOLDOWN_MINUTES", 60)))
-            # PROFIT_TARGET removed as per instruction
-            stop_loss = st.slider("Stop Loss (%)", -10.0, -0.1, float(config.get("STOP_LOSS", -0.02)) * 100) / 100
-            trailing_callback = st.slider("Trailing Callback (%)", 0.1, 2.0, float(config.get("TRAILING_STOP_CALLBACK", 0.002)) * 100) / 100
+            trade_amount = st.number_input("1회 매수 금액 (KRW)", value=float(config.get("TRADE_AMOUNT", 10000)))
+            max_slots = st.number_input("최대 보유 종목 수", value=int(config.get("MAX_SLOTS", 3)))
+            cooldown = st.number_input("재진입 대기 시간 (분)", value=int(config.get("COOLDOWN_MINUTES", 60)))
             
+            # Updated Strategy Configs
             st.divider()
-            st.subheader("Add-Buy Strategy")
-            add_buy_wait = st.number_input("Add-Buy Wait (min)", value=int(config.get("ADD_BUY_WAIT_MINUTES", 15)))
-            add_buy_threshold = st.slider("Add-Buy Threshold (%)", -10.0, -0.1, float(config.get("ADD_BUY_THRESHOLD", -0.015)) * 100) / 100
-            add_buy_min_score = st.number_input("Add-Buy Min Score", value=int(config.get("ADD_BUY_MIN_SCORE", 20)))
+            st.subheader("전략 설정")
+            min_entry_score = st.number_input("최소 진입 점수", value=int(config.get("MIN_ENTRY_SCORE", 30)))
             
+            # Exit Strategy
+            exit_strategies = config.get("exit_strategies", {})
             st.divider()
-            st.subheader("Entry Strategy")
-            min_entry_score = st.number_input("Min Entry Score", value=int(config.get("MIN_ENTRY_SCORE", 30)), help="Minimum score required to buy a new coin (Default 30)")
+            st.subheader("청산 전략 (고급)")
+            stop_loss = st.slider("손절 기준 (%)", -10.0, -0.1, float(exit_strategies.get("stop_loss", 0.02)) * -100) / -100
+            trailing_trigger = st.slider("트레일링 시작 (%)", 0.1, 5.0, float(exit_strategies.get("trailing_stop_trigger", 0.005)) * 100) / 100
+            trailing_gap = st.slider("트레일링 감지 폭 (%)", 0.1, 2.0, float(exit_strategies.get("trailing_stop_gap", 0.002)) * 100) / 100
             
-            st.divider()
-            st.subheader("Strategy Settings")
-            min_volatility = st.slider("Min Volatility (%)", 0.1, 5.0, float(config.get("MIN_VOLATILITY", 0.01)) * 100) / 100
-            vol_spike_ratio = st.number_input("Volume Spike Ratio (x)", value=float(config.get("VOL_SPIKE_RATIO", 3.0)))
-            rsi_threshold = st.number_input("RSI Threshold", value=float(config.get("RSI_THRESHOLD", 70.0)))
-            bp_threshold = st.slider("Buying Power Threshold (%)", 50.0, 90.0, float(config.get("BUYING_POWER_THRESHOLD", 0.55)) * 100) / 100
-            
-            if st.form_submit_button("Update Config"):
-                new_config = {
-                    "TRADE_AMOUNT": trade_amount,
-                    "MAX_SLOTS": max_slots,
-                    "COOLDOWN_MINUTES": cooldown,
-                    "PROFIT_TARGET": float(config.get("PROFIT_TARGET", 0.005)),
-                    "STOP_LOSS": stop_loss,
-                    "TRAILING_STOP_CALLBACK": trailing_callback,
-                    "ADD_BUY_WAIT_MINUTES": add_buy_wait,
-                    "ADD_BUY_THRESHOLD": add_buy_threshold,
-                    "ADD_BUY_MIN_SCORE": add_buy_min_score,
-                    "MIN_ENTRY_SCORE": min_entry_score,
-                    "MIN_VOLATILITY": min_volatility,
-                    "VOL_SPIKE_RATIO": vol_spike_ratio,
-                    "RSI_THRESHOLD": rsi_threshold,
-                    "BUYING_POWER_THRESHOLD": bp_threshold
-                }
-                save_json(CONFIG_FILE, new_config)
-                st.success("Config updated!")
+            if st.form_submit_button("설정 업데이트"):
+                # Preserve existing structure
+                config["TRADE_AMOUNT"] = trade_amount
+                config["MAX_SLOTS"] = max_slots
+                config["COOLDOWN_MINUTES"] = cooldown
+                config["MIN_ENTRY_SCORE"] = min_entry_score
+                
+                # Update nested exit strategies
+                if "exit_strategies" not in config: config["exit_strategies"] = {}
+                config["exit_strategies"]["stop_loss"] = abs(stop_loss)
+                config["exit_strategies"]["trailing_stop_trigger"] = trailing_trigger
+                config["exit_strategies"]["trailing_stop_gap"] = trailing_gap
+                
+                save_json(CONFIG_FILE, config)
+                st.success("설정이 업데이트 되었습니다!")
 
         st.divider()
-        st.header("🎮 Manual Control")
+        st.header("🎮 수동 제어")
         col_c1, col_c2 = st.columns(2)
-        if col_c1.button("🛑 Stop Bot"):
+        if col_c1.button("🛑 봇 정지"):
             send_command("master_stop")
-        if col_c2.button("▶️ Start Bot"):
+        if col_c2.button("▶️ 봇 시작"):
             send_command("master_start")
 
-        st.caption("Master switch controls new entries only.")
+        st.caption("마스터 스위치는 신규 진입만 제어합니다.")
 
     # Auto Refresh Checkbox (Logic at end)
-    auto_refresh = st.checkbox("Auto Refresh (10s)", value=True)
+    auto_refresh = st.checkbox("자동 새로고침 (10초)", value=True)
 
     # Load Main Data
     state = load_json(STATE_FILE)
-    history = load_json(HISTORY_FILE) # Actually this loads a list, need logic
-    if isinstance(history, dict): history = [] # Handle if file init wrong
+    history = load_json(HISTORY_FILE) 
+    if isinstance(history, dict): history = [] 
     
     # Tabs
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Real-time Status", "🔍 Scanner", "📈 Balance Metrics", "📅 Stats & History", "📝 Logs"])

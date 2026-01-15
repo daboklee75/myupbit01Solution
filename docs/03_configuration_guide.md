@@ -1,39 +1,47 @@
-# 트레이딩 봇 설정 가이드 (Configuration Guide)
+# 03. 설정 가이드 (Configuration)
 
-이 문서는 `trader_config.json` 파일의 각 설정값에 대한 상세 설명입니다.
-JSON 파일 특성상 주석을 직접 달 수 없어 이 문서를 참고하시기 바랍니다.
+`trader_config.json` 파일을 직접 수정하거나, 대시보드(Streamlit)의 Settings 탭에서 변경할 수 있습니다.
 
-## 설정 항목 설명
+## 주요 설정 항목
 
-```jsonc
+```json
 {
-    // [기본 거래 설정]
-    "TRADE_AMOUNT": 10000.0,       // 1회 진입 시 매수 금액 (승인된 투자금, 단위: KRW)
-    "MAX_SLOTS": 2,                // 최대 동시에 보유할 수 있는 종목 수 (슬롯 개수)
-    "COOLDOWN_MINUTES": 60,        // 매도 후 해당 종목을 재매수하지 않고 쉬는 시간 (분)
-
-    // [익절 및 손절 전략]
-    "PROFIT_TARGET": 0.005,        // 익절 감시 시작 수익률 (0.5% 도달 시 트레일링 스탑 가동 준비)
-    "STOP_LOSS": -0.02,            // 손절 수익률 (-2.0% 도달 시 즉시 시장가 손절)
-    "TRAILING_STOP_CALLBACK": 0.001, // 트레일링 스탑 반등 폭 
-                                     // (예: 0.001 = 고점 대비 0.1% 하락 시 익절 실행)
-
-    // [물타기(추매) 전략]
-    "ADD_BUY_THRESHOLD": -0.015,   // 수익률이 -1.5% (-0.015)까지 떨어지면 물타기 고려
-    "ADD_BUY_WAIT_MINUTES": 15,    // 진입 후 최소 15분이 지나야 물타기 가능
-    "ADD_BUY_MIN_SCORE": 20,       // 물타기 시점의 점수가 20점 이상이어야만 실행 (하락장 방어용)
-
-    // [종목 선정 필터링]
-    "MIN_VOLATILITY": 0.01,        // 최소 변동성 (등락폭이 1.0% 이상인 종목만 선정)
-    "MIN_ENTRY_SCORE": 30,         // 진입 최소 점수 (30점 이상인 종목만 매수 시도)
+    "candle_interval": "minute15",      // 캔들 기준 (건드리지 마세요)
+    "analysis_period_candles": 12,      // 3시간 데우터 분석 (건드리지 마세요)
     
-    // [스코어링 파라미터 (Trend Scanning)]
-    "VOL_SPIKE_RATIO": 3.0,        // 거래량 급등 기준 (평소 거래량의 3배 이상 터지면 +20점)
-    "RSI_THRESHOLD": 70.0,         // RSI 과매수 기준 (RSI 70 이상이면 '강한 모멘텀'으로 간주 +5점)
-    "BUYING_POWER_THRESHOLD": 0.55 // 체결 강도(매수세) 기준 (55% 이상이면 +5~10점)
+    // 매매 기본 설정
+    "TRADE_AMOUNT": 10000,              // 1회 매수 금액 (KRW)
+    "MAX_SLOTS": 3,                     // 동시에 운영할 최대 코인 개수
+    "COOLDOWN_MINUTES": 30,             // 매도 후 해당 코인 재진입 금지 시간 (분)
+    
+    // 진입 민감도
+    "min_entry_score": 30,              // 진입에 필요한 최소 점수 (높을수록 신중)
+    
+    // 전략 상세 파라미터 (고급)
+    "slope_thresholds": {
+        "strong": 2.0,                  // 강한 상승 기준 기울기
+        "moderate": 0.5                 // 완만한 상승 기준 기울기
+    },
+    "limit_offsets": {                  // 기울기별 지정가 할인율
+        "strong": 0.003,                // -0.3%
+        "moderate": 0.010,              // -1.0%
+        "weak": 0.015                   // -1.5%
+    },
+    
+    // 청산 전략 (Exit Strategy)
+    "exit_strategies": {
+        "stop_loss": 0.02,              // 손절 기준 (2.0%)
+        "trailing_stop_trigger": 0.005, // 트레일링 스탑 발동 조건 (0.5% 수익 시)
+        "trailing_stop_gap": 0.002,     // 트레일링 스탑 감지 폭 (0.2% 하락 시)
+        "break_even_trigger": 0.007,    // 본절 보호 발동 조건 (0.7% 수익 시)
+        "break_even_sl": 0.0005         // 본절 보호 시 새로운 손절 라인 (+0.05%)
+    },
+    
+    "timeout_minutes": 15               // 지정가 주문 대기 시간 (분)
 }
 ```
 
-## 주의사항
-- 이 파일의 내용을 `trader_config.json`에 그대로 복사하면 **오류**가 발생합니다. (JSON은 주석 `//` 불가)
-- 대시보드(Web)에서 설정을 저장하면 파일의 내용이 덮어씌워집니다.
+## 대시보드 설정 방법
+1.  대시보드 좌측 사이드바의 **Settings** 메뉴로 이동합니다.
+2.  원하는 값을 입력하거나 슬라이더로 조정합니다.
+3.  **Update Config** 버튼을 누르면 즉시 `trader_config.json` 파일에 저장되며 봇에 반영됩니다.
