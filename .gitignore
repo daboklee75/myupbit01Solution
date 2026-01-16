@@ -147,3 +147,5 @@ cython_debug/
 trade_state.json
 trade_history.json
 logs/
+
+scan_results.json

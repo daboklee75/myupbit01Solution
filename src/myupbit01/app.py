@@ -119,14 +119,14 @@ def main():
     if isinstance(history, dict): history = [] 
     
     # Tabs
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Real-time Status", "🔍 Scanner", "📈 Balance Metrics", "📅 Stats & History", "📝 Logs"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 실시간 현황", "🔍 종목 스캐너", "📈 자산 분석", "📅 거래 기록", "📝 로그"])
 
     with tab1:
-        st.subheader("Active Trading Slots")
+        st.subheader("진행 중인 거래 (Active Slots)")
         slots = state.get("slots", [])
         
         if not slots:
-            st.info("No active trades currently.")
+            st.info("현재 진행 중인 거래가 없습니다.")
         else:
             for slot in slots:
                 market = slot.get('market')
@@ -134,7 +134,10 @@ def main():
                 avg_price = slot.get('avg_buy_price', 0)
                 
                 # Fetch current info
-                current_price = pyupbit.get_current_price(market) or 0
+                try:
+                    current_price = pyupbit.get_current_price(market) or 0
+                except Exception:
+                    current_price = 0
                 
                 # Fetch balance to calculate total value
                 balance = 0
@@ -166,39 +169,94 @@ def main():
 
                 is_trailing_active = max_profit_rate >= profit_target
                 
+                # Status Mapping
+                status_map = {
+                    "BUY_WAIT": "🕒 매수 대기 (주문 중)",
+                    "HOLDING": "💰 보유 중 (수익 감시)",
+                    "SELL_WAIT": "⏳ 매도 대기 (주문 중)"
+                }
+                status_kr = status_map.get(status, status)
+                
+                # Visual Distinction (Colors)
+                status_color = "gray"
+                if status == "HOLDING":
+                    status_color = "green"
+                elif status == "BUY_WAIT":
+                    status_color = "orange"
+                
                 with st.container(border=True):
                     # Header with Status Badge
                     c_head1, c_head2 = st.columns([3, 1])
-                    title_md = f"**{market}** ({status})"
-                    if is_trailing_active:
-                        title_md += " 🟢 **Trailing Active**"
-                    c_head1.markdown(title_md)
                     
-                    if c_head2.button("🚨 Panic Sell", key=f"panic_{market}"):
-                        send_command("panic_sell", market=market)
+                    # Custom HTML Badge
+                    badge_html = f"""
+                    <span style='
+                        background-color: {status_color};
+                        color: white;
+                        padding: 4px 8px;
+                        border-radius: 4px;
+                        font-size: 0.8em;
+                        font-weight: bold;
+                        vertical-align: middle;
+                        margin-left: 8px;
+                    '>{status_kr}</span>
+                    """
+                    
+                    title_md = f"**{market}** {badge_html}"
+                    if is_trailing_active:
+                        title_md += " 🔥 **익절 감시 중 (Trailing)**"
+                    c_head1.markdown(title_md, unsafe_allow_html=True)
+                    
+                    if status == "BUY_WAIT":
+                         if c_head2.button("🚫 취소 (Cancel)", key=f"cancel_{market}"):
+                             send_command("cancel_buy_order", market=market)
+                    else:
+                        if c_head2.button("🚨 긴급 매도 (Panic)", key=f"panic_{market}"):
+                            send_command("panic_sell", market=market)
 
                     c1, c2, c3, c4 = st.columns(4)
-                    c1.metric("Return", f"{profit_rate*100:.2f}%", f"{current_value - invested_amount:,.0f} KRW")
-                    c2.metric("Current Price", f"{current_price:,.0f}", f"High: {highest_price:,.0f}")
-                    c3.metric("Entry Price", f"{entry_price:,.0f}")
-                    c4.metric("Invested", f"{invested_amount:,.0f} KRW")
+                    
+                    # Entry Price vs Limit Price Logic
+                    display_price_label = "매수가 (Entry)"
+                    display_price_val = entry_price
+                    
+                    display_amt_label = "평가금액 (Value)"
+                    display_amt_val = invested_amount
+                    
+                    if status == "BUY_WAIT":
+                        display_price_label = "주문가 (Limit)"
+                        # Fallback to entry_price if limit_price missing, though it should be there
+                        display_price_val = float(slot.get('limit_price', entry_price))
+                        
+                        display_amt_label = "주문총액 (Order)"
+                        # Show configured TRADE_AMOUNT for pending buys
+                        display_amt_val = float(config.get("TRADE_AMOUNT", 10000))
+                    elif status == "HOLDING":
+                        # [NEW] Show Sell Limit Price if available
+                        if slot.get('sell_limit_price'):
+                            display_price_label = "매도예약 (Sell)"
+                            display_price_val = float(slot['sell_limit_price'])
+
+                    c1.metric("수익률 (Return)", f"{profit_rate*100:.2f}%", f"{current_value - invested_amount:,.0f} KRW")
+                    c2.metric("현재가 (Price)", f"{current_price:,.4f}", f"고점: {highest_price:,.4f}")
+                    c3.metric(display_price_label, f"{display_price_val:,.4f}")
+                    c4.metric(display_amt_label, f"{display_amt_val:,.0f} KRW")
                     
                     if is_trailing_active:
-                        st.progress(min(max_profit_rate / (profit_target * 2), 1.0), text=f"Max Profit: {max_profit_rate*100:.2f}% (Target: {profit_target*100:.2f}%)")
+                        st.progress(min(max_profit_rate / (profit_target * 2), 1.0), text=f"최고 수익률: {max_profit_rate*100:.2f}% (목표: {profit_target*100:.2f}%)")
 
-        st.subheader("Cooldowns")
+        st.subheader("재진입 대기 (Cooldowns)")
         st.write(state.get("cooldowns", {}))
 
     with tab2:
-        st.subheader("Scanner Candidates (Strict)")
+        st.subheader("실시간 랭킹 (Ranked Candidates)")
         scan_res = load_json(SCAN_RESULTS_FILE)
         timestamp = scan_res.get("timestamp", "-")
-        st.caption(f"Last Scan: {timestamp}")
+        st.caption(f"마지막 검색: {timestamp}")
         
         candidates = scan_res.get("candidates", [])
         if candidates:
-            df_scan = pd.DataFrame(candidates)
-            # Reorder cols
+            # df_scan = pd.DataFrame(candidates) # Removed duplicate line
             df_scan = pd.DataFrame(candidates)
             # Reorder cols
             cols = ['korean_name', 'score', 'rsi', 'buy_ratio', 'vol_spike', 'price', 'price_change_1m']
@@ -207,12 +265,12 @@ def main():
             
             st.dataframe(df_scan[cols], use_container_width=True)
             
-            st.caption("Score Guide: VolSpike(20) + Momentum(10) + BuyPower(10) + RSI(5) + Trend(5)")
+            st.caption("점수 가이드: 볼륨급등(20) + 추세강도(10) + 매수체결강도(10) + RSI(5) + 이동평균(5)")
         else:
-            st.info("No candidates found in last scan.")
+            st.info("조건에 맞는 종목이 없습니다.")
 
     with tab3:
-        st.subheader("Asset Balance")
+        st.subheader("자산 현황 (Assets)")
         try:
             # Fetch balances (Caution: API limit)
             access = os.getenv("UPBIT_ACCESS_KEY")
@@ -311,6 +369,12 @@ def main():
                 date_label = "Total"
 
             # [NEW] Aggregated Stats (Filtered)
+            # Fix: Calculate PnL if missing (Backward Compatibility)
+            if 'pnl' not in df_filtered.columns:
+                 # Estimate based on config TRADE_AMOUNT
+                 trade_amt = float(config.get("TRADE_AMOUNT", 10000))
+                 df_filtered['pnl'] = df_filtered['profit_rate'] * trade_amt
+
             total_pnl = df_filtered['pnl'].sum() if not df_filtered.empty else 0
             total_trades = len(df_filtered)
             wins = len(df_filtered[df_filtered['pnl'] > 0]) if not df_filtered.empty else 0
@@ -345,6 +409,11 @@ def main():
             if not df_filtered.empty:
                 df_filtered = df_filtered.copy() # Avoid SettingWithCopyWarning
                 df_filtered['Analysis'] = df_filtered.apply(generate_analysis, axis=1)
+                
+                # Fix: Calculate sell_price if missing
+                if 'sell_price' not in df_filtered.columns:
+                     df_filtered['sell_price'] = df_filtered['buy_price'] * (1 + df_filtered['profit_rate'])
+                
                 df_filtered['Return (%)'] = df_filtered['profit_rate'].apply(lambda x: f"{x*100:+.2f}%")
                 df_filtered['PnL (KRW)'] = df_filtered['pnl'].apply(lambda x: f"{x:,.0f}")
                 df_filtered['Sell Price'] = df_filtered['sell_price'].apply(lambda x: f"{x:,.0f}")

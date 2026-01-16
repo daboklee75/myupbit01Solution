@@ -4,7 +4,7 @@
     "volume_threshold_rate": 1.0,
     "slope_thresholds": {
         "strong": 2.0,
-        "moderate": 0.5
+        "moderate": 0.3
     },
     "limit_offsets": {
         "strong": 0.003,
@@ -15,9 +15,9 @@
         "take_profit_target": "recent_high",
         "break_even_trigger": 0.007,
         "break_even_sl": 0.0005,
-        "trailing_stop_trigger": 0.005,
+        "trailing_stop_trigger": 0.01,
         "trailing_stop_gap": 0.002,
-        "stop_loss": 0.02
+        "stop_loss": 0.05
     },
     "timeout_minutes": 15,
     "universes_count": 30,
@@ -27,5 +27,5 @@
     "BUYING_POWER_THRESHOLD": 0.55,
     "VOL_SPIKE_RATIO": 3.0,
     "RSI_THRESHOLD": 70.0,
-    "MIN_ENTRY_SCORE": 20
+    "MIN_ENTRY_SCORE": 15
 }

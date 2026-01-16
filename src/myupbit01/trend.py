@@ -138,12 +138,15 @@ def score_trend(data):
         score += 5  # Stable Zone (Mid 30-60%)
         
     # 3. Volume Support
-    if data['vol_ratio'] > 1.0:
+    if data['vol_ratio'] > 1.5:
         score += 5
         
     # 4. Momentum Stability (RSI)
-    if 40 <= data['rsi'] <= 60:
-        score += 5
+    # Modified: Bonus for strong momentum (breaking 60)
+    if 50 <= data['rsi'] <= 70:
+         score += 5
+    elif 40 <= data['rsi'] < 50:
+         score += 2
         
     return score
 
@@ -201,3 +204,42 @@ def get_best_target(min_score=30):
         for i, cand in enumerate(scored_candidates[1:3]):
              logger.info(f"Rank {i+2}: {cand['market']} (Score: {cand['score']}, Slope: {cand['slope']:.2f}%)")
         return None
+
+def get_ranked_targets(min_score=30, limit=3):
+    """
+    Returns a list of targets meeting the min_score, sorted by Score DESC, Slope DESC.
+    """
+    # 1. Fetch Candidates
+    candidates = get_candidates(limit=30, min_volatility=1.0)
+    logger.info(f"Scanning {len(candidates)} active tickers for 3H Trends...")
+    
+    scored_candidates = []
+    
+    for coin in candidates:
+        market = coin['market']
+        
+        trend_data = analyze_trend(market)
+        if trend_data:
+            score = score_trend(trend_data)
+            trend_data['score'] = score
+            trend_data['korean_name'] = coin['korean_name']
+            
+            # Filter by min_score immediately
+            if score >= min_score:
+                scored_candidates.append(trend_data)
+                
+        # Rate limit to be nice
+        time.sleep(0.05)
+        
+    # Sort by Score DESC, then Slope DESC
+    scored_candidates.sort(key=lambda x: (x['score'], x['slope']), reverse=True)
+    
+    result = scored_candidates[:limit]
+    
+    if result:
+        for i, cand in enumerate(result):
+             logger.info(f"Rank {i+1}: {cand['korean_name']} ({cand['market']}) Score: {cand['score']} Slope: {cand['slope']:.2f}%")
+    else:
+        logger.info(f"No valid targets found meeting min_score {min_score}.")
+
+    return result

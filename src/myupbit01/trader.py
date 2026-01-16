@@ -43,9 +43,10 @@ class AutoTrader:
                 self.log(f"Error loading config: {e}")
         
         # Defaults
-        self.trade_amount = float(os.getenv("TRADE_AMOUNT", 10000))
-        self.max_slots = int(os.getenv("MAX_SLOTS", 3))
-        self.cooldown_minutes = int(os.getenv("COOLDOWN_MINUTES", 60))
+        # Defaults - Prioritize Config > Env > Default
+        self.trade_amount = float(self.config.get("TRADE_AMOUNT", os.getenv("TRADE_AMOUNT", 10000)))
+        self.max_slots = int(self.config.get("MAX_SLOTS", os.getenv("MAX_SLOTS", 3)))
+        self.cooldown_minutes = int(self.config.get("COOLDOWN_MINUTES", os.getenv("COOLDOWN_MINUTES", 60)))
 
     def load_state(self):
         state = {"slots": [], "cooldowns": {}}
@@ -88,9 +89,22 @@ class AutoTrader:
         self.logger.info(msg)
 
     def get_tick_size(self, price):
+        """
+        Upbit Tick Size Logic (Conservative & Robust)
+        To avoid 'invalid_price_bid' errors like KRW-BCH (880k price, 100 theoretical tick, but 500 actual),
+        we use coarser tick sizes in ambiguous ranges.
+        
+        >= 2,000,000       : 1,000
+        >= 500,000         : 500    (Changed from >= 1,000,000. Safe b/c 500 is multiple of 100)
+        >= 100,000         : 50     (Standard)
+        >= 10,000          : 10     (Standard)
+        >= 1,000           : 5      (Standard)
+        >= 100             : 1      (Standard)
+        >= 10              : 0.1    (Standard)
+        < 10               : 0.01
+        """
         if price >= 2000000: return 1000
-        if price >= 1000000: return 500
-        if price >= 500000: return 100
+        if price >= 500000: return 500  # Conservative: Covers 500k~1M range with 500 tick
         if price >= 100000: return 50
         if price >= 10000: return 10
         if price >= 1000: return 5
@@ -194,30 +208,49 @@ class AutoTrader:
 
         self.state['last_search_time'] = now
         
-        # 1. Get Best Target with Dynamic Score Threshold
+        # 1. Get Ranked Targets (Multi-Target Logic)
         min_score = int(self.config.get("MIN_ENTRY_SCORE", 30))
         self.log(f"Searching for 3H trend targets (Min Score: {min_score})...")
         
-        best_target = trend.get_best_target(min_score=min_score)
+        # [FIX] Use get_ranked_targets instead of get_best_target
+        ranked_targets = trend.get_ranked_targets(min_score=min_score, limit=3)
         
-        # Save results for UI/Log
-        if best_target:
-            self.save_scan_results([best_target])
-            trend.save_scan_history([best_target], filename=os.path.join(LOG_DIR, "scan_history.csv"))
-        else:
+        if not ranked_targets:
             # self.log("No valid target found.") # trend.py logs this now
+            return
+
+        # Loop through ranked targets
+        best_target = None
+        for cand in ranked_targets:
+            market = cand['market']
+            score = cand['score']
+            
+            # Filters: already holding or cooldown
+            held_markets = [s['market'] for s in self.state['slots']]
+            cooldowns = self.state.get('cooldowns', {})
+            
+            if market in held_markets or market in cooldowns:
+                self.log(f"Target {market} (Score {score}) is held or in cooldown. Skipping.")
+                continue # Try next rank
+                
+            # Found valid target
+            best_target = cand
+            break
+            
+        if not best_target:
+            self.log("All candidates are held or in cooldown.")
             return
 
         market = best_target['market']
         score = best_target['score']
         slope = best_target['slope']
 
-        # Filters: already holding or cooldown
-        held_markets = [s['market'] for s in self.state['slots']]
-        cooldowns = self.state.get('cooldowns', {})
-        if market in held_markets or market in cooldowns:
-            self.log(f"Target {market} (Score {score}) is held or in cooldown. Skipping.")
-            return
+        # Log selection
+        self.log(f"Target Selected: {market} (Score: {score}, Slope: {slope:.2f}%)")
+        
+        # Save results for UI/Log (just the selected one for now)
+        self.save_scan_results([best_target])
+        # trend.save_scan_history([best_target], filename=os.path.join(LOG_DIR, "scan_history.csv")) # removed
 
         # 2. Calculate Limit Price (Dynamic)
         current_price = best_target['price']
@@ -232,14 +265,30 @@ class AutoTrader:
         elif slope >= thresholds['moderate']:
             offset = offsets['moderate']
             
+        # Calculate raw limit price
         limit_price = current_price * (1 - offset)
-        limit_price = self.get_tick_size(limit_price) * round(limit_price / self.get_tick_size(limit_price))
+
+        # Round to tick size
+        tick_size = self.get_tick_size(limit_price)
+        limit_price = tick_size * round(limit_price / tick_size)
         
-        self.log(f"Target Selected: {market} (Score: {score}, Slope: {slope:.2f}%)")
+        # [FIX] Cast to int if tick_size >= 1 to avoid sending "870700.0"
+        if tick_size >= 1:
+            limit_price = int(limit_price)
+            
         self.log(f"Placing Limit Buy Order at {limit_price} (Current: {current_price}, Offset: -{offset*100:.2f}%)")
         
         # 3. Place Order
-        ret = self.upbit.buy_limit_order(market, limit_price, self.trade_amount)
+        # Check Balance
+        krw_balance = self.upbit.get_balance("KRW")
+        if krw_balance < self.trade_amount:
+            self.log(f"Insufficient KRW Balance: {krw_balance} < {self.trade_amount}")
+            return
+
+        # Calculate Volume
+        volume = self.trade_amount / limit_price
+        
+        ret = self.upbit.buy_limit_order(market, limit_price, volume)
         if ret and 'uuid' in ret:
             new_slot = {
                 "status": "BUY_WAIT",
@@ -291,7 +340,9 @@ class AutoTrader:
                 avg_price = float(order.get('trades', [{'price': slot['limit_price']}])[0]['price']) # Fallback
                 # Better: executed_funds / executed_volume
                 if float(order.get('executed_volume',0)) > 0:
-                    avg_price = float(order['executed_funds']) / float(order['executed_volume'])
+                    executed_funds = float(order.get('executed_funds', 0))
+                    if executed_funds > 0:
+                        avg_price = executed_funds / float(order['executed_volume'])
                 
                 self.log(f"Buy Order Filled for {market} at {avg_price}")
                 
@@ -309,7 +360,11 @@ class AutoTrader:
                 # External cancel or partial fill
                 executed_vol = float(order.get('executed_volume', 0))
                 if executed_vol > 0:
-                    avg_price = float(order['executed_funds']) / executed_vol
+                    executed_funds = float(order.get('executed_funds', 0))
+                    if executed_funds > 0:
+                        avg_price = executed_funds / executed_vol
+                    else:
+                        avg_price = float(order.get('price', slot['limit_price'])) # Fallback
                     self.log(f"Order canceled but partially filled for {market}. Managing position.")
                     slot['status'] = "HOLDING"
                     slot['avg_buy_price'] = avg_price
@@ -345,6 +400,7 @@ class AutoTrader:
             ret = self.upbit.sell_limit_order(market, target_price, balance)
             if ret and 'uuid' in ret:
                 slot['sell_order_uuid'] = ret['uuid']
+                slot['sell_limit_price'] = target_price # [NEW] Save sell price
                 self.log(f"Placed Take Profit Limit for {market} at {target_price}")
             else:
                 self.log(f"Failed to place TP Limit for {market}: {ret}")
@@ -380,7 +436,8 @@ class AutoTrader:
                 order = self.upbit.get_order(slot['sell_order_uuid'])
                 if order and order['state'] == 'done':
                     self.log(f"Take Profit Limit Executed for {market}. PnL: Approx {(curr_price - avg_price)/avg_price*100:.2f}%")
-                    self.record_trade(slot, "Limit Take Profit", profit_rate)
+                    vol = float(order.get('executed_volume', 0))
+                    self.record_trade(slot, "Limit Take Profit", profit_rate, volume=vol)
                     self.remove_slot(slot, cooldown=True)
                     return
             except Exception:
@@ -390,7 +447,9 @@ class AutoTrader:
         should_sell = False
         reason = ""
         
-        exit_cfg = self.config['exit_strategies']
+        exit_cfg = self.config.get('exit_strategies', {})
+        if not exit_cfg:
+             self.log("Warning: exit_strategies not found in config. Using defaults.")
         
         # A. Stop Loss
         sl_rate = -exit_cfg.get('stop_loss', 0.02)
@@ -428,10 +487,10 @@ class AutoTrader:
             balance = self.upbit.get_balance(market)
             if balance > 0:
                 self.upbit.sell_market_order(market, balance)
-                self.record_trade(slot, reason, profit_rate)
+                self.record_trade(slot, reason, profit_rate, volume=balance)
                 self.remove_slot(slot, cooldown=True)
 
-    def record_trade(self, slot, reason, profit_rate):
+    def record_trade(self, slot, reason, profit_rate, volume=0.0):
         history = []
         if os.path.exists(HISTORY_FILE):
             try:
@@ -439,11 +498,18 @@ class AutoTrader:
                     history = json.load(f)
             except: pass
             
+        buy_price = slot['avg_buy_price']
+        sell_price = buy_price * (1 + profit_rate)
+        pnl = (sell_price - buy_price) * volume
+        
         record = {
             "date": datetime.date.today().isoformat(),
             "time": datetime.datetime.now().isoformat(),
             "market": slot['market'],
-            "buy_price": slot['avg_buy_price'],
+            "buy_price": buy_price,
+            "sell_price": sell_price,
+            "pnl": pnl,
+            "volume": volume,
             "reason": reason,
             "profit_rate": profit_rate
         }
@@ -508,6 +574,21 @@ class AutoTrader:
                     elif cmd_type == 'master_start':
                         self.log("COMMAND: Master Start executed. Resuming.")
                         self.is_active = True
+                        
+                    elif cmd_type == 'cancel_buy_order':
+                        market = cmd_data.get('market')
+                        self.log(f"COMMAND: Cancel Buy Order received for {market}")
+                        active_slots = self.state.get('slots', [])
+                        target_slot = next((s for s in active_slots if s['market'] == market), None)
+                        
+                        if target_slot and target_slot['status'] == 'BUY_WAIT':
+                            uuid = target_slot.get('buy_order_uuid')
+                            if uuid:
+                                self.upbit.cancel_order(uuid)
+                                self.log(f"Direct Command: Canceled buy order {uuid} for {market}")
+                            self.remove_slot(target_slot, cooldown=False) 
+                        else:
+                            self.log(f"COMMAND FAILED: Slot not found or not in BUY_WAIT for {market}")
                 
                 os.remove(COMMAND_FILE)
             except Exception as e:
