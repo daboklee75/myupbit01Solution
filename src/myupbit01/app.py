@@ -17,6 +17,72 @@ st.set_page_config(
     layout="wide"
 )
 
+# Custom CSS for Compact Layout
+st.markdown("""
+<style>
+    /* Reduce main container padding */
+    .block-container {
+        padding-top: 3rem !important; /* Increased to fix title cutoff */
+        padding-bottom: 1rem !important;
+    }
+    /* Compact Metrics */
+    div[data-testid="stMetric"] {
+        padding: 5px !important;
+    }
+    div[data-testid="stMetricLabel"] {
+        font-size: 0.8rem !important;
+    }
+    div[data-testid="stMetricValue"] {
+        font-size: 1.1rem !important;
+    }
+    /* Compact Expander */
+    .streamlit-expanderHeader {
+        padding-top: 5px !important;
+        padding-bottom: 5px !important;
+        min-height: 40px !important;
+    }
+    .streamlit-expanderContent {
+        padding-top: 5px !important;
+        padding-bottom: 5px !important;
+    }
+    /* Reduce vertical gaps between elements */
+    div[data-testid="stVerticalBlock"] > div {
+        margin-bottom: 0.1rem !important;
+    }
+    h1, h2, h3 {
+        margin-top: 0px !important;
+        margin-bottom: 5px !important;
+        padding: 0px !important;
+    }
+    /* Compact Bordered Container (Panel Box) */
+    div[data-testid="stVerticalBlockBorderWrapper"] {
+        padding: 0.5rem !important; /* Reduced for tighter look */
+        margin-bottom: 0.2rem !important;
+        background-color: #f9f9faf0;
+    }
+    /* Target the inner content of the bordered container to remove extra padding */
+    div[data-testid="stVerticalBlockBorderWrapper"] > div {
+        padding-top: 0px !important;
+        padding-bottom: 0px !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Debug helper to inspect balances
+def debug_balances():
+    try:
+        access = os.getenv("UPBIT_ACCESS_KEY")
+        secret = os.getenv("UPBIT_SECRET_KEY")
+        if not access or not secret:
+            return "API Keys missing in .env"
+        
+        upbit = pyupbit.Upbit(access, secret)
+        balances = upbit.get_balances()
+        return balances
+    except Exception as e:
+        return f"Error: {e}"
+
+
 # Constants
 STATE_FILE = "trade_state.json"
 HISTORY_FILE = "trade_history.json"
@@ -128,9 +194,32 @@ def main():
         if not slots:
             st.info("현재 진행 중인 거래가 없습니다.")
         else:
+            # Optimize: Create Upbit instance and fetch balances ONCE
+            balance_map = {}
+            try:
+                access = os.getenv("UPBIT_ACCESS_KEY")
+                secret = os.getenv("UPBIT_SECRET_KEY")
+                if access and secret:
+                     upbit = pyupbit.Upbit(access, secret)
+                     balances = upbit.get_balances()
+                     # Valid response is a list
+                     if isinstance(balances, list):
+                         for b in balances:
+                             currency = b.get('currency')
+                             # Total = Available + Locked
+                             total_qty = float(b.get('balance', 0)) + float(b.get('locked', 0))
+                             avg_price = float(b.get('avg_buy_price', 0))
+                             balance_map[currency] = {
+                                 'qty': total_qty,
+                                 'avg_price': avg_price
+                             }
+            except Exception as e:
+                st.error(f"Wallet Fetch Error: {e}")
+
             for slot in slots:
                 market = slot.get('market')
                 status = slot.get('status')
+                # Use saved avg price from slot as primary, fallback to wallet
                 avg_price = slot.get('avg_buy_price', 0)
                 
                 # Fetch current info
@@ -139,17 +228,20 @@ def main():
                 except Exception:
                     current_price = 0
                 
-                # Fetch balance to calculate total value
-                balance = 0
+                # Fetch balance from pre-fetched map
+                total_qty = 0
                 try:
-                    access = os.getenv("UPBIT_ACCESS_KEY")
-                    secret = os.getenv("UPBIT_SECRET_KEY")
-                    # We need a fresh instance or reuse one. Creating new for safety in loop (low overhead)
-                    upbit = pyupbit.Upbit(access, secret)
-                    balance = upbit.get_balance(market)
+                    currency = market.split('-')[1]
+                    if currency in balance_map:
+                        total_qty = balance_map[currency]['qty']
+                        # If slot avg price is 0 (missing), try to use wallet avg price
+                        if avg_price == 0:
+                            avg_price = balance_map[currency]['avg_price']
                 except:
-                    balance = 0
+                    total_qty = 0
 
+                # Calculate Values
+                balance = total_qty # Use total quantity (locked + available)
                 invested_amount = balance * avg_price
                 current_value = balance * current_price
                 
@@ -202,10 +294,26 @@ def main():
                     '>{status_kr}</span>
                     """
                     
-                    title_md = f"**{market}** {badge_html}"
+                    # Korean Name (Safe Access)
+                    korean_name = slot.get('trend_info', {}).get('korean_name', '')
+                    if not korean_name:
+                         # Fallback if trend_info missing or empty
+                         korean_name = ""
+                    else:
+                        korean_name = f"({korean_name})"
+
+                    # Title Construction with Korean Name
+                    title_html = f"""
+                    <div style='display: flex; align-items: center; margin-bottom: 0px;'>
+                        <h3 style='margin: 0; padding: 0;'>{market} <span style='font-size: 0.8em; font-weight: normal; color: #555;'>{korean_name}</span></h3>
+                        {badge_html}
+                    </div>
+                    """
+                    
                     if is_trailing_active:
-                        title_md += " 🔥 **익절 감시 중 (Trailing)**"
-                    c_head1.markdown(title_md, unsafe_allow_html=True)
+                         title_html += "<div style='font-size: 0.8em; color: red; margin-top: 2px;'>🔥 익절 감시 중 (Trailing)</div>"
+
+                    c_head1.markdown(title_html, unsafe_allow_html=True)
                     
                     if status == "BUY_WAIT":
                          if c_head2.button("🚫 취소 (Cancel)", key=f"cancel_{market}"):
@@ -214,39 +322,47 @@ def main():
                         if c_head2.button("🚨 긴급 매도 (Panic)", key=f"panic_{market}"):
                             send_command("panic_sell", market=market)
 
-                    c1, c2, c3, c4 = st.columns(4)
+                    c1, c2, c3, c4, c5 = st.columns(5)
                     
-                    # Entry Price vs Limit Price Logic
-                    display_price_label = "매수가 (Entry)"
-                    display_price_val = entry_price
+                    # Uniform Layout: 
+                    # 1. Profit (수익률)
+                    # 2. Current (현재가)
+                    # 3. Buy/Order (매수가/주문가)
+                    # 4. Sell/- (매도예약/-)
+                    # 5. Total Value (평가금액/주문총액)
                     
-                    display_amt_label = "평가금액 (Value)"
-                    display_amt_val = invested_amount
-                    
-                    if status == "BUY_WAIT":
-                        display_price_label = "주문가 (Limit)"
-                        # Fallback to entry_price if limit_price missing, though it should be there
-                        display_price_val = float(slot.get('limit_price', entry_price))
-                        
-                        display_amt_label = "주문총액 (Order)"
-                        # Show configured TRADE_AMOUNT for pending buys
-                        display_amt_val = float(config.get("TRADE_AMOUNT", 10000))
-                    elif status == "HOLDING":
-                        # [NEW] Show Sell Limit Price if available
-                        if slot.get('sell_limit_price'):
-                            display_price_label = "매도예약 (Sell)"
-                            display_price_val = float(slot['sell_limit_price'])
-
-                    c1.metric("수익률 (Return)", f"{profit_rate*100:.2f}%", f"{current_value - invested_amount:,.0f} KRW")
+                    # Common Metrics
+                    c1.metric("수익률 (Return)", f"{profit_rate*100:.2f}%")
                     c2.metric("현재가 (Price)", f"{current_price:,.4f}", f"고점: {highest_price:,.4f}")
-                    c3.metric(display_price_label, f"{display_price_val:,.4f}")
-                    c4.metric(display_amt_label, f"{display_amt_val:,.0f} KRW")
                     
+                    if status == "HOLDING":
+                         c3.metric("매수가 (Buy)", f"{entry_price:,.4f}")
+                         
+                         sell_price_display = float(slot.get('sell_limit_price', 0))
+                         c4.metric("매도예약 (Sell)", f"{sell_price_display:,.4f}" if sell_price_display > 0 else "-")
+                         
+                         c5.metric("평가총금액 (Value)", f"{current_value:,.0f} KRW", f"{current_value - invested_amount:,.0f} KRW")
+                         
+                    else:
+                        # BUY_WAIT
+                        limit_price = float(slot.get('limit_price', entry_price))
+                        c3.metric("주문가 (Limit)", f"{limit_price:,.4f}")
+                        
+                        c4.metric("매도예약 (Sell)", "-")
+                        
+                        order_amount = float(config.get("TRADE_AMOUNT", 10000))
+                        c5.metric("주문총금액 (Order)", f"{order_amount:,.0f} KRW")
+
                     if is_trailing_active:
                         st.progress(min(max_profit_rate / (profit_target * 2), 1.0), text=f"최고 수익률: {max_profit_rate*100:.2f}% (목표: {profit_target*100:.2f}%)")
 
         st.subheader("재진입 대기 (Cooldowns)")
         st.write(state.get("cooldowns", {}))
+
+        with st.expander("🛠️ 지갑 디버깅 (Wallet Debug)"):
+             if st.button("내 잔고 전체 조회"):
+                 st.write(debug_balances())
+
 
     with tab2:
         st.subheader("실시간 랭킹 (Ranked Candidates)")
