@@ -119,3 +119,21 @@ chmod +x run.sh
 pkill -f trader.py
 pkill -f streamlit
 ```
+
+## 9. 자주 묻는 질문 (Troubleshooting)
+
+### Q1. "Your local changes... would be overwritten by merge" 에러
+서버의 설정 파일(`trader_config.json`)아 대시보드 조작 등으로 인해 수정되었을 때 발생합니다.
+
+**해결 방법 1: 설정 유지하고 합치기 (추천)**
+```bash
+git stash       # 내 설정 임시 저장
+git pull        # 최신 코드 받기
+git stash pop   # 내 설정 다시 적용 (자동 병합)
+```
+
+**해결 방법 2: 서버 설정 날리고 덮어쓰기**
+```bash
+git restore trader_config.json
+git pull
+```
