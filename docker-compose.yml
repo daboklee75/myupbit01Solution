@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  # 내 봇 (User 1)
+  my_bot:
+    build: .
+    container_name: my_upbit_bot
+    restart: always
+    environment:
+      - MYUPBIT_ENV_FILE=/app/data/.env
+      - MYUPBIT_DATA_DIR=/app/data
+      # .env 파일 내용은 로컬의 .env 파일을 마운트해서 주입
+    volumes:
+      # 로컬의 users/me 폴더를 컨테이너 내부의 /app/data로 연결
+      - ./users/me:/app/data
+    ports:
+      - "8501:8501"
+
+  # 친구 봇 (User 2)
+  friend_bot:
+    build: .
+    container_name: friend_upbit_bot
+    restart: always
+    environment:
+      - MYUPBIT_ENV_FILE=/app/data/.env
+      - MYUPBIT_DATA_DIR=/app/data
+    volumes:
+      # 로컬의 users/friend 폴더를 컨테이너 내부의 /app/data로 연결
+      - ./users/friend:/app/data
+    ports:
+      - "8502:8501" # 외부 8502 -> 내부 8501 연결
+
+# 사용법:
+# 1. users/me 폴더와 users/friend 폴더를 만듭니다.
+# 2. 각 폴더 안에 .env 파일을 넣습니다.
+# 3. docker-compose up -d --build 명령어 실행
