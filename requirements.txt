@@ -1,0 +1,4 @@
+pyupbit>=0.2.34
+python-dotenv>=1.2.1
+streamlit>=1.52.2
+pandas>=2.3.3
