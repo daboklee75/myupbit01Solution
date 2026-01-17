@@ -33,10 +33,10 @@
     // 청산 전략 (Exit Strategy)
     "exit_strategies": {
         "stop_loss": 0.05,              // 손절 기준 (5.0%)
-        "stop_loss_confirm_seconds": 5, // [신규] 손절 확정 대기 시간
+        "stop_loss_confirm_seconds": 15, // [신규] 손절 확정 대기 시간
         "trailing_stop_trigger": 0.008, // 트레일링 스탑 발동 조건 (0.8% 수익 시)
         "trailing_stop_gap": 0.002,     // 트레일링 스탑 감지 폭
-        "trailing_stop_confirm_seconds": 5, // [신규] 익절 확정 대기 시간
+        "trailing_stop_confirm_seconds": 15, // [신규] 익절 확정 대기 시간
         "break_even_trigger": 0.007,    // 본절 보호 발동 조건
         "break_even_sl": 0.0005,        // 본절 보호 시 새로운 손절 라인
         "take_profit_target": "recent_high", // 익절 목표 기준 (최근 고점 몸통)

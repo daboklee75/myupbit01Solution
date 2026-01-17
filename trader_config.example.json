@@ -21,9 +21,9 @@
         "break_even_sl": 0.0005,
         "trailing_stop_trigger": 0.008,
         "trailing_stop_gap": 0.002,
-        "trailing_stop_confirm_seconds": 5,
+        "trailing_stop_confirm_seconds": 15,
         "stop_loss": 0.05,
-        "stop_loss_confirm_seconds": 5
+        "stop_loss_confirm_seconds": 15
     },
     "timeout_minutes": 15,
     "universes_count": 30,

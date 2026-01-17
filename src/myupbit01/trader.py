@@ -599,19 +599,27 @@ class AutoTrader:
                      slot['ts_confirm_count'] = 0
 
         if should_sell:
+            # [Added] Append Add-Buy Info if applicable
+            entry_cnt = slot.get('entry_cnt', 1)
+            if entry_cnt > 1:
+                reason += f" (물타기: {entry_cnt-1}회)"
+
             self.log(f"Triggering Market Sell for {market}. Reason: {reason}. Current: {profit_rate*100:.2f}%")
-            # Cancel Limit Order first
+            
+            # Cancel Profit Limit First
             if slot.get('sell_order_uuid'):
                 self.upbit.cancel_order(slot['sell_order_uuid'])
-                time.sleep(1) # Wait for cancel
-                
+                time.sleep(0.5)
+            
             # Market Sell
             balance = self.upbit.get_balance(market)
             if balance > 0:
-                self.upbit.sell_market_order(market, balance)
-                self.record_trade(slot, reason, profit_rate, volume=balance)
-                self.remove_slot(slot, cooldown=True)
-
+                ret = self.upbit.sell_market_order(market, balance)
+                if ret and 'uuid' in ret:
+                    self.record_trade(slot, reason, profit_rate, volume=balance)
+                    self.remove_slot(slot, cooldown=True)
+                else:
+                    self.log(f"Sell failed: {ret}")
     def record_trade(self, slot, reason, profit_rate, volume=0.0):
         history = []
         if os.path.exists(HISTORY_FILE):
