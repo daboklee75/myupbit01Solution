@@ -284,6 +284,10 @@ class AutoTrader:
         # 3. Place Order
         # Check Balance
         krw_balance = self.upbit.get_balance("KRW")
+        if krw_balance is None:
+            self.log("CRITICAL: Failed to fetch KRW balance. Check API Keys or Network.")
+            return
+
         if krw_balance < self.trade_amount:
             self.log(f"Insufficient KRW Balance: {krw_balance} < {self.trade_amount}")
             return
