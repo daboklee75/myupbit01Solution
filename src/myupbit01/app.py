@@ -198,6 +198,9 @@ def main():
             exit_strategies = config.get("exit_strategies", {})
             st.divider()
             st.subheader("청산 전략 (고급)")
+            # [NEW] TP Ratio
+            tp_ratio = st.slider("익절 비율 (전고점 대비 %)", 10, 100, int(float(exit_strategies.get("take_profit_ratio", 0.5)) * 100)) / 100.0
+            
             stop_loss = st.slider("손절 기준 (%)", -10.0, -0.1, float(exit_strategies.get("stop_loss", 0.05)) * -100) / -100
             trailing_trigger = st.slider("트레일링 시작 (%)", 0.1, 5.0, float(exit_strategies.get("trailing_stop_trigger", 0.008)) * 100) / 100
             trailing_gap = st.slider("트레일링 감지 폭 (%)", 0.1, 2.0, float(exit_strategies.get("trailing_stop_gap", 0.002)) * 100) / 100
@@ -205,6 +208,10 @@ def main():
             # Add-Buy Config
             add_buy_val = float(exit_strategies.get("add_buy_trigger", -0.03)) * 100
             add_buy_trigger = st.slider("물타기 (Add-Buy) 기준 (%)", -10.0, -0.5, add_buy_val) / 100
+            
+            # [NEW] Add-Buy Amount Ratio
+            ab_amt_val = int(float(exit_strategies.get("add_buy_amount_ratio", 1.0)) * 100)
+            add_buy_amt_ratio = st.slider("물타기 금액 비율 (1회 진입금 대비 %)", 10, 300, ab_amt_val) / 100.0
 
             if st.form_submit_button("설정 업데이트"):
                 # Preserve existing structure
@@ -217,10 +224,12 @@ def main():
                 if "exit_strategies" not in config: config["exit_strategies"] = {}
                 
                 # Store normalized values
+                config["exit_strategies"]["take_profit_ratio"] = tp_ratio
                 config["exit_strategies"]["stop_loss"] = abs(stop_loss)
                 config["exit_strategies"]["trailing_stop_trigger"] = trailing_trigger
                 config["exit_strategies"]["trailing_stop_gap"] = trailing_gap
                 config["exit_strategies"]["add_buy_trigger"] = add_buy_trigger
+                config["exit_strategies"]["add_buy_amount_ratio"] = add_buy_amt_ratio
                 
                 # Save config
                 save_json(CONFIG_FILE, config)
@@ -353,6 +362,7 @@ def main():
                         font-weight: bold;
                         vertical-align: middle;
                         margin-left: 8px;
+                        margin-bottom: 3px;
                     '>{status_kr}</span>
                     """
                     
@@ -611,12 +621,12 @@ def main():
                     lambda row: f"{row['profit_rate']*100:+.2f}% ({row['pnl']:+,.0f} KRW)", axis=1
                 )
                 
-                df_filtered['PnL (KRW)'] = df_filtered['pnl'].apply(lambda x: f"{x:,.0f}")
+                # df_filtered['PnL (KRW)'] = df_filtered['pnl'].apply(lambda x: f"{x:,.0f}") # Removed
                 df_filtered['Sell Price'] = df_filtered['sell_price'].apply(lambda x: f"{x:,.0f}")
                 df_filtered['Buy Price'] = df_filtered['buy_price'].apply(lambda x: f"{x:,.0f}")
                 
                 # Select and Rename Columns
-                display_cols = ['time', 'market', 'Analysis', 'Return (%)', 'PnL (KRW)', 'reason', 'Sell Price', 'Buy Price']
+                display_cols = ['time', 'market', 'Analysis', 'Return (%)', 'reason', 'Sell Price', 'Buy Price']
                 df_final = df_filtered[display_cols].rename(columns={
                     'time': 'Time', 'market': 'Market', 'reason': 'Reason'
                 })

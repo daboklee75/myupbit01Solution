@@ -467,13 +467,22 @@ class AutoTrader:
                  krw_balance = self.upbit.get_balance("KRW")
                  if krw_balance >= self.trade_amount:
                      # 2. Cancel Existing Sell Limit
-                     if slot.get('sell_order_uuid'):
-                         self.upbit.cancel_order(slot['sell_order_uuid'])
-                         time.sleep(1) # Wait for cancel
-                         
-                     # 3. Buy Market
-                     # Buy same amount as config (1x)
-                     ret = self.upbit.buy_market_order(market, self.trade_amount)
+                 
+                 # 2. Cancel Existing Sell Limit
+                 if slot.get('sell_order_uuid'):
+                     self.upbit.cancel_order(slot['sell_order_uuid'])
+                     time.sleep(1) # Wait for cancel
+                     
+                 # 3. Buy Market
+                 # Buy amount based on ratio (default 1.0 = 100% of TRADE_AMOUNT)
+                 ab_ratio = exit_cfg.get('add_buy_amount_ratio', 1.0)
+                 buy_amount = self.trade_amount * ab_ratio
+                 
+                 # Verify min order amount (KRW 5000)
+                 if buy_amount < 5000: buy_amount = 5000
+
+                 if krw_balance >= buy_amount:
+                     ret = self.upbit.buy_market_order(market, buy_amount)
                      if ret and 'uuid' in ret:
                          # 4. Update Slot
                          time.sleep(1) # Wait for fill
@@ -491,7 +500,7 @@ class AutoTrader:
                      else:
                          self.log(f"Add-Buy Failed: {ret}")
                  else:
-                     self.log(f"Skipping Add-Buy: Insufficient Balance ({krw_balance} < {self.trade_amount})")
+                     self.log(f"Skipping Add-Buy: Insufficient Balance ({krw_balance} < {buy_amount})")
 
         # --- Exit Logic ---
         
@@ -502,7 +511,7 @@ class AutoTrader:
                 if order and order['state'] == 'done':
                     self.log(f"Take Profit Limit Executed for {market}. PnL: Approx {(curr_price - avg_price)/avg_price*100:.2f}%")
                     vol = float(order.get('executed_volume', 0))
-                    self.record_trade(slot, "Limit Take Profit", profit_rate, volume=vol)
+                    self.record_trade(slot, "🟢 [성공] 목표 수익 도달 후 익절", profit_rate, volume=vol)
                     self.remove_slot(slot, cooldown=True)
                     return
             except Exception:
@@ -538,18 +547,18 @@ class AutoTrader:
                     
                     if current_cnt >= confirm_secs:
                         should_sell = True
-                        reason = f"Stop Loss (SL: {sl_rate*100:.2f}%, Confirmed {confirm_secs}s)"
+                        reason = f"🔴 [손절] 손절 기준 도달 (설정: {sl_rate*100:.2f}%, 유지 {confirm_secs}초)"
                         slot['sl_confirm_count'] = 0 # Reset
                     else:
                         self.log(f"Stop Loss Pending for {market}: {current_cnt}/{confirm_secs}s (Current: {profit_rate*100:.2f}%)")
                         should_sell = False # Wait more
                 else:
                     should_sell = True
-                    reason = f"Stop Loss (SL: {sl_rate*100:.2f}%)"
+                    reason = f"🔴 [손절] 손절 기준 도달 (설정: {sl_rate*100:.2f}%)"
             else:
                 # Instant Sell for Break-even or if config is 0
                 should_sell = True
-                reason = f"Stop Loss (SL: {sl_rate*100:.2f}%)"
+                reason = f"🟡 [본절] 본전 사수 (설정: {sl_rate*100:.2f}%)"
                 
         else:
             # Price recovered checks
@@ -577,14 +586,14 @@ class AutoTrader:
                     
                     if current_ts_cnt >= ts_confirm_secs:
                         should_sell = True
-                        reason = f"Trailing Stop (Max: {max_rate*100:.2f}%, Confirmed {ts_confirm_secs}s)"
+                        reason = f"🟢 [익절] 트레일링 스탑 (최고: {max_rate*100:.2f}%, 하락감지, 유지 {ts_confirm_secs}초)"
                         slot['ts_confirm_count'] = 0
                     else:
                         self.log(f"Trailing Stop Pending for {market}: {current_ts_cnt}/{ts_confirm_secs}s (Drop: {drop_rate*100:.2f}%)")
                         should_sell = False
                 else:
                     should_sell = True
-                    reason = f"Trailing Stop (Max: {max_rate*100:.2f}%)"
+                    reason = f"🟢 [익절] 트레일링 스탑 (최고: {max_rate*100:.2f}%, 하락감지)"
             else:
                  # Reset count if price recovers
                  if slot.get('ts_confirm_count', 0) > 0:
