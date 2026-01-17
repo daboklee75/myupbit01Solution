@@ -82,7 +82,14 @@ WEB_PASSWORD=password123
 ```
 *   저장: `Ctrl + X` -> `Y` -> `Enter`.
 
-**2. 로그 폴더 생성**
+
+**2. 봇 설정 파일 생성 (필수)**
+기본 설정 파일을 복사해서 실제 설정 파일을 만듭니다.
+```bash
+cp trader_config.example.json trader_config.json
+```
+
+**3. 로그 폴더 생성**
 ```bash
 mkdir -p logs
 ```
@@ -123,20 +130,14 @@ pkill -f streamlit
 ## 9. 자주 묻는 질문 (Troubleshooting)
 
 ### Q1. "Your local changes... would be overwritten by merge" 에러
-서버의 설정 파일(`trader_config.json`)아 대시보드 조작 등으로 인해 수정되었을 때 발생합니다.
+**[업데이트]** 이제 `trader_config.json`은 Git에서 관리하지 않으므로 이 문제는 더 이상 발생하지 않습니다.
 
-**해결 방법 1: 설정 유지하고 합치기 (추천)**
+만약 과거 버전에서 업데이트 중이라면:
 ```bash
-git stash       # 내 설정 임시 저장
-git pull        # 최신 코드 받기
-git stash pop   # 내 설정 다시 적용 (자동 병합)
-```
-
-**해결 방법 2: 서버 설정 날리고 덮어쓰기**
-```bash
-git restore trader_config.json
+git rm --cached trader_config.json
 git pull
 ```
+명령어로 추적을 중단하면 해결됩니다.
 
 ### Q2. 다른 PC(집/회사)에서도 접속하고 싶어요.
 `myupbit.pem` 파일(키 페어) 관리 방법은 크게 두 가지가 있습니다.

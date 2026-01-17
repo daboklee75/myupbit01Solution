@@ -18,14 +18,21 @@
 ## 🚀 시작하기 (Getting Started)
 
 ### 1. 설정 (Configuration)
-`.env` 파일에 업비트 API 키를 입력하세요.
+
+**Step 1: API 키 설정**
+`.env` 파일을 생성하고 업비트 API 키를 입력하세요.
 ```ini
 UPBIT_ACCESS_KEY=your_access_key
 UPBIT_SECRET_KEY=your_secret_key
-TRADE_AMOUNT=10000
-MAX_SLOTS=3
-COOLDOWN_MINUTES=30
+# ...
 ```
+
+**Step 2: 봇 설정 파일 생성**
+기본 템플릿을 복사하여 설정 파일을 만듭니다.
+```bash
+cp trader_config.example.json trader_config.json
+```
+이제 `trader_config.json`을 자유롭게 수정하셔도 Git 충돌이 발생하지 않습니다.
 
 ### 2. 실행 (Run)
 `run.bat` 파일을 더블 클릭하거나 콘솔에서 실행하세요.
