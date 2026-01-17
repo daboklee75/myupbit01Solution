@@ -463,17 +463,15 @@ class AutoTrader:
                  # Trigger Add-Buy
                  self.log(f"Triggering Add-Buy for {market} (Current: {profit_rate*100:.2f}%, Count: {current_entry_cnt}/{max_add_buys})")
                  
-                 # 1. Check Balance
-                 krw_balance = self.upbit.get_balance("KRW")
-                 if krw_balance >= self.trade_amount:
-                     # 2. Cancel Existing Sell Limit
-                 
-                 # 2. Cancel Existing Sell Limit
+                 # 1. Check Logic & Cancel Existing Sell Limit
                  if slot.get('sell_order_uuid'):
                      self.upbit.cancel_order(slot['sell_order_uuid'])
                      time.sleep(1) # Wait for cancel
                      
-                 # 3. Buy Market
+                 # 2. Buy Market
+                 # 3. Check Balance (Dynamic Amount)
+                 krw_balance = self.upbit.get_balance("KRW")
+                 
                  # Buy amount based on ratio (default 1.0 = 100% of TRADE_AMOUNT)
                  ab_ratio = exit_cfg.get('add_buy_amount_ratio', 1.0)
                  buy_amount = self.trade_amount * ab_ratio
