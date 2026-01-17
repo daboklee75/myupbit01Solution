@@ -52,7 +52,7 @@
 **1. 시스템 업데이트 및 필수 프로그램 설치**
 ```bash
 sudo apt update
-sudo apt install python3-pip git -y
+sudo apt install python3-pip python3-venv git -y
 ```
 
 **2. 소스 코드 다운로드**
@@ -61,9 +61,17 @@ git clone https://github.com/daboklee75/myupbit01Solution.git
 cd myupbit01Solution
 ```
 
-**3. 파이썬 라이브러리 설치**
+**3. 가상환경 생성 및 활성화**
+최신 우분투에서는 시스템 파이썬 오염 방지를 위해 가상환경 사용이 필수입니다.
 ```bash
-pip3 install -r requirements.txt
+python3 -m venv venv
+source venv/bin/activate
+```
+(터미널 프롬프트 앞에 `(venv)`가 생기면 성공입니다)
+
+**4. 파이썬 라이브러리 설치**
+```bash
+pip install -r requirements.txt
 ```
 
 ### 4단계: 설정 파일 생성
@@ -89,16 +97,16 @@ mkdir -p logs
 
 ### 5단계: 프로그램 실행 (백그라운드)
 
-터미널 창을 닫아도 프로그램이 계속 실행되게 하려면 `nohup` 명령어를 씁니다.
+가상환경의 파이썬을 지정하여 실행합니다.
 
 **1. 트레이딩 봇 실행**
 ```bash
-nohup python3 src/myupbit01/trader.py > logs/trader.log 2>&1 &
+nohup ./venv/bin/python src/myupbit01/trader.py > logs/trader.log 2>&1 &
 ```
 
 **2. 대시보드(웹 아님) 실행**
 ```bash
-nohup streamlit run src/myupbit01/app.py > logs/app.log 2>&1 &
+nohup ./venv/bin/streamlit run src/myupbit01/app.py > logs/app.log 2>&1 &
 ```
 
 ### 6단계: 실행 확인 및 접속
