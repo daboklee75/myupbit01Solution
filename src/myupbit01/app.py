@@ -606,7 +606,11 @@ def main():
                 if 'sell_price' not in df_filtered.columns:
                      df_filtered['sell_price'] = df_filtered['buy_price'] * (1 + df_filtered['profit_rate'])
                 
-                df_filtered['Return (%)'] = df_filtered['profit_rate'].apply(lambda x: f"{x*100:+.2f}%")
+                # Format Return column: +0.50% (+50 KRW)
+                df_filtered['Return (%)'] = df_filtered.apply(
+                    lambda row: f"{row['profit_rate']*100:+.2f}% ({row['pnl']:+,.0f} KRW)", axis=1
+                )
+                
                 df_filtered['PnL (KRW)'] = df_filtered['pnl'].apply(lambda x: f"{x:,.0f}")
                 df_filtered['Sell Price'] = df_filtered['sell_price'].apply(lambda x: f"{x:,.0f}")
                 df_filtered['Buy Price'] = df_filtered['buy_price'].apply(lambda x: f"{x:,.0f}")
