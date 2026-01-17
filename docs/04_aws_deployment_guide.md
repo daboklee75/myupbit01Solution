@@ -75,6 +75,10 @@ nano .env
 ```ini
 UPBIT_ACCESS_KEY=여기에_엑세스_키_입력
 UPBIT_SECRET_KEY=여기에_시크릿_키_입력
+
+# 대시보드 로그인 정보 (원하는 값으로 변경)
+WEB_USERNAME=admin
+WEB_PASSWORD=password123
 ```
 *   저장: `Ctrl + X` -> `Y` -> `Enter`.
 

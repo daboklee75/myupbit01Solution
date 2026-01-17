@@ -120,11 +120,63 @@ def load_logs(lines=20):
             return "Error loading logs."
     return "No logs found."
 
+def check_password():
+    """Returns `True` if the user had the correct password."""
+    
+    # Credentials from .env
+    correct_user = os.getenv("WEB_USERNAME")
+    correct_password = os.getenv("WEB_PASSWORD")
+
+    # If no credentials set, warn but allow (or return False to force setup? Let's allow for now to prevent lockout if env not set)
+    if not correct_user or not correct_password:
+        # st.warning("⚠️ .env 파일에 WEB_USERNAME과 WEB_PASSWORD가 설정되지 않았습니다.")
+        return True
+
+    def password_entered():
+        """Checks whether a password entered by the user is correct."""
+        if st.session_state["username"] == correct_user and st.session_state["password"] == correct_password:
+            st.session_state["password_correct"] = True
+            # Clear inputs
+            del st.session_state["password"]
+            del st.session_state["username"]
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        st.session_state["password_correct"] = False
+
+    if not st.session_state["password_correct"]:
+        st.title("🔒 로그인 (Login)")
+        
+        with st.form("login_form"):
+            st.text_input("아이디 (Username)", key="username")
+            st.text_input("비밀번호 (Password)", type="password", key="password")
+            if st.form_submit_button("로그인", on_click=password_entered):
+                pass # Logic handled in on_click
+                
+        if "password_correct" in st.session_state and st.session_state["password_correct"] == False:
+            st.error("😕 아이디 또는 비밀번호가 틀렸습니다.")
+            
+        return False
+        
+    return True
+
 def main():
+    if not check_password():
+        st.stop()
+
     st.title("🤖 MyUpbit AutoTrader Dashboard")
 
     # Sidebar: Configuration & Control
     with st.sidebar:
+        # User Profile & Logout
+        if os.getenv("WEB_USERNAME"):
+            st.caption(f"👤 {os.getenv('WEB_USERNAME')} 로그인 중")
+            if st.button("🚪 로그아웃", use_container_width=True):
+                st.session_state["password_correct"] = False
+                st.rerun()
+            st.divider()
+
         st.header("⚙️ 설정 (Settings)")
         
         # Load Config
