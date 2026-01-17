@@ -80,7 +80,8 @@ def analyze_trend(market):
             return None
             
         # Channel (High/Low)
-        high_3h = window_df['high'].max()
+        # [MODIFIED] Use Close High instead of Wick High for better fill probability
+        high_3h = window_df['close'].max()
         low_3h = window_df['low'].min()
         current_price = window_df['close'].iloc[-1]
         

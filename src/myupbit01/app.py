@@ -146,10 +146,14 @@ def main():
             exit_strategies = config.get("exit_strategies", {})
             st.divider()
             st.subheader("청산 전략 (고급)")
-            stop_loss = st.slider("손절 기준 (%)", -10.0, -0.1, float(exit_strategies.get("stop_loss", 0.02)) * -100) / -100
-            trailing_trigger = st.slider("트레일링 시작 (%)", 0.1, 5.0, float(exit_strategies.get("trailing_stop_trigger", 0.005)) * 100) / 100
+            stop_loss = st.slider("손절 기준 (%)", -10.0, -0.1, float(exit_strategies.get("stop_loss", 0.05)) * -100) / -100
+            trailing_trigger = st.slider("트레일링 시작 (%)", 0.1, 5.0, float(exit_strategies.get("trailing_stop_trigger", 0.008)) * 100) / 100
             trailing_gap = st.slider("트레일링 감지 폭 (%)", 0.1, 2.0, float(exit_strategies.get("trailing_stop_gap", 0.002)) * 100) / 100
             
+            # Add-Buy Config
+            add_buy_val = float(exit_strategies.get("add_buy_trigger", -0.03)) * 100
+            add_buy_trigger = st.slider("물타기 (Add-Buy) 기준 (%)", -10.0, -0.5, add_buy_val) / 100
+
             if st.form_submit_button("설정 업데이트"):
                 # Preserve existing structure
                 config["TRADE_AMOUNT"] = trade_amount
@@ -159,12 +163,18 @@ def main():
                 
                 # Update nested exit strategies
                 if "exit_strategies" not in config: config["exit_strategies"] = {}
+                
+                # Store normalized values
                 config["exit_strategies"]["stop_loss"] = abs(stop_loss)
                 config["exit_strategies"]["trailing_stop_trigger"] = trailing_trigger
                 config["exit_strategies"]["trailing_stop_gap"] = trailing_gap
+                config["exit_strategies"]["add_buy_trigger"] = add_buy_trigger
                 
+                # Save config
                 save_json(CONFIG_FILE, config)
-                st.success("설정이 업데이트 되었습니다!")
+                st.success("설정이 업데이트되었습니다! (자동 반영)")
+                time.sleep(1)
+                st.rerun()
 
         st.divider()
         st.header("🎮 수동 제어")
@@ -333,15 +343,29 @@ def main():
                     
                     # Common Metrics
                     c1.metric("수익률 (Return)", f"{profit_rate*100:.2f}%")
-                    c2.metric("현재가 (Price)", f"{current_price:,.4f}", f"고점: {highest_price:,.4f}")
+                    c2.metric("현재가 (Price)", f"{current_price:,.4f}") # Removed high price
                     
                     if status == "HOLDING":
                          c3.metric("매수가 (Buy)", f"{entry_price:,.4f}")
                          
                          sell_price_display = float(slot.get('sell_limit_price', 0))
-                         c4.metric("매도예약 (Sell)", f"{sell_price_display:,.4f}" if sell_price_display > 0 else "-")
+                         sell_msg = "-"
+                         if sell_price_display > 0:
+                              # Expected profit calculation
+                              exp_profit = ((sell_price_display - entry_price) / entry_price) * 100
+                              
+                              # Adaptive formatting
+                              if sell_price_display < 100:
+                                  price_fmt = "{:,.4f}"
+                              else:
+                                  price_fmt = "{:,.0f}"
+                              
+                              sell_msg = f"{price_fmt.format(sell_price_display)} ({exp_profit:.1f}%)"
+                             
+                         c4.metric("매도예약 (Sell)", sell_msg)
                          
-                         c5.metric("평가총금액 (Value)", f"{current_value:,.0f} KRW", f"{current_value - invested_amount:,.0f} KRW")
+                         # Value: 9,933 KRW (10,000 KRW)
+                         c5.metric("평가총금액 (Value)", f"{current_value:,.0f} KRW ({invested_amount:,.0f} KRW)", f"{current_value - invested_amount:,.0f} KRW")
                          
                     else:
                         # BUY_WAIT

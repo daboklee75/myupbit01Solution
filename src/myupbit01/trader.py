@@ -110,7 +110,10 @@ class AutoTrader:
         if price >= 1000: return 5
         if price >= 100: return 1
         if price >= 10: return 0.1
-        return 0.01
+        if price >= 1: return 0.01
+        if price >= 0.1: return 0.001
+        if price >= 0.01: return 0.0001
+        return 0.00001
 
     def sync_slots_with_balances(self):
         """
@@ -349,6 +352,7 @@ class AutoTrader:
                 slot['status'] = "HOLDING"
                 slot['avg_buy_price'] = avg_price
                 slot['entry_time'] = datetime.datetime.now().isoformat()
+                slot['entry_cnt'] = 1 # Initial Entry counted as 1
                 slot['highest_price'] = avg_price
                 slot['sell_order_uuid'] = None
                 
@@ -386,11 +390,17 @@ class AutoTrader:
         high_3h = slot['trend_info'].get('high_3h')
         avg_price = slot['avg_buy_price']
         
-        if not high_3h or high_3h <= avg_price * 1.005: 
-            # If 3H high is too close (< 0.5%), aim for min 1.0%
+        if not high_3h:
+            # Fallback
             target_price = avg_price * 1.01
         else:
-            target_price = high_3h
+            # Apply Take Profit Ratio (e.g., 0.5 = 50% of the way to High)
+            tp_ratio = self.config['exit_strategies'].get('take_profit_ratio', 1.0)
+            target_price = avg_price + (high_3h - avg_price) * tp_ratio
+            
+            # Ensure Min Profit 1.0%
+            if target_price <= avg_price * 1.01:
+                target_price = avg_price * 1.01
             
         target_price = self.get_tick_size(target_price) * round(target_price / self.get_tick_size(target_price))
         
@@ -422,12 +432,53 @@ class AutoTrader:
             if profit_rate >= break_even_trigger:
                  # Ensure we have a stop protected above entry
                  # Logic handled in Stop Loss section via dynamic SL? 
-                 # Or update config['STOP_LOSS']? Stop loss is global.
-                 # Let's check locally.
+            # Let's check locally.
                  slot['is_break_even_active'] = True
                  
         self.save_state()
+    
+        # --- Add-Buy (Watering) Logic ---
+        exit_cfg = self.config.get('exit_strategies', {})
+        add_buy_trigger = exit_cfg.get('add_buy_trigger', -1.0) # Default disabled if not set (or very low)
+        max_add_buys = exit_cfg.get('max_add_buys', 0)
+        current_entry_cnt = slot.get('entry_cnt', 1)
         
+        if max_add_buys > 0 and current_entry_cnt <= max_add_buys:
+            # Check trigger
+            if profit_rate <= add_buy_trigger:
+                 # Trigger Add-Buy
+                 self.log(f"Triggering Add-Buy for {market} (Current: {profit_rate*100:.2f}%, Count: {current_entry_cnt}/{max_add_buys})")
+                 
+                 # 1. Check Balance
+                 krw_balance = self.upbit.get_balance("KRW")
+                 if krw_balance >= self.trade_amount:
+                     # 2. Cancel Existing Sell Limit
+                     if slot.get('sell_order_uuid'):
+                         self.upbit.cancel_order(slot['sell_order_uuid'])
+                         time.sleep(1) # Wait for cancel
+                         
+                     # 3. Buy Market
+                     # Buy same amount as config (1x)
+                     ret = self.upbit.buy_market_order(market, self.trade_amount)
+                     if ret and 'uuid' in ret:
+                         # 4. Update Slot
+                         time.sleep(1) # Wait for fill
+                         # Re-fetch average price and balance (total volume)
+                         avg_price = self.upbit.get_avg_buy_price(market)
+                         slot['avg_buy_price'] = avg_price
+                         slot['entry_cnt'] = current_entry_cnt + 1
+                         slot['sell_order_uuid'] = None # Reset
+                         self.log(f"Add-Buy Executed. New Avg Price: {avg_price}")
+                         
+                         # 5. Re-place Profit Limit
+                         self.place_profit_limit(slot)
+                         self.save_state()
+                         return # Exit manage_holding to avoid selling immediately
+                     else:
+                         self.log(f"Add-Buy Failed: {ret}")
+                 else:
+                     self.log(f"Skipping Add-Buy: Insufficient Balance ({krw_balance} < {self.trade_amount})")
+
         # --- Exit Logic ---
         
         # 1. Check if SP Limit Filled
@@ -452,19 +503,48 @@ class AutoTrader:
              self.log("Warning: exit_strategies not found in config. Using defaults.")
         
         # A. Stop Loss
-        sl_rate = -exit_cfg.get('stop_loss', 0.02)
+        sl_rate = -exit_cfg.get('stop_loss', 0.05)
         
         # B. Break-even SL
-        if slot.get('is_break_even_active'):
+        is_break_even = slot.get('is_break_even_active', False)
+        if is_break_even:
             # If triggered break-even, SL becomes +0.05%
             sl_rate = exit_cfg.get('break_even_sl', 0.0005) 
             
         if profit_rate <= sl_rate:
-            should_sell = True
-            reason = f"Stop Loss (SL: {sl_rate*100:.2f}%)"
+            # Stop Loss Triggered
+            
+            # Apply Time Confirmation ONLY for True Stop Loss (Loss Cut), not Break-even
+            if not is_break_even and sl_rate < 0:
+                confirm_secs = exit_cfg.get('stop_loss_confirm_seconds', 0)
+                if confirm_secs > 0:
+                    # Increment Counter
+                    current_cnt = slot.get('sl_confirm_count', 0) + 1
+                    slot['sl_confirm_count'] = current_cnt
+                    
+                    if current_cnt >= confirm_secs:
+                        should_sell = True
+                        reason = f"Stop Loss (SL: {sl_rate*100:.2f}%, Confirmed {confirm_secs}s)"
+                        slot['sl_confirm_count'] = 0 # Reset
+                    else:
+                        self.log(f"Stop Loss Pending for {market}: {current_cnt}/{confirm_secs}s (Current: {profit_rate*100:.2f}%)")
+                        should_sell = False # Wait more
+                else:
+                    should_sell = True
+                    reason = f"Stop Loss (SL: {sl_rate*100:.2f}%)"
+            else:
+                # Instant Sell for Break-even or if config is 0
+                should_sell = True
+                reason = f"Stop Loss (SL: {sl_rate*100:.2f}%)"
+                
+        else:
+            # Price recovered checks
+            if slot.get('sl_confirm_count', 0) > 0:
+                 self.log(f"Stop Loss Reset for {market} (Recovered to {profit_rate*100:.2f}%)")
+                 slot['sl_confirm_count'] = 0
 
         # C. Trailing Stop
-        ts_trigger = exit_cfg.get('trailing_stop_trigger', 0.005)
+        ts_trigger = exit_cfg.get('trailing_stop_trigger', 0.008)
         ts_gap = exit_cfg.get('trailing_stop_gap', 0.002)
         max_rate = (slot['highest_price'] - avg_price) / avg_price
         
@@ -473,8 +553,29 @@ class AutoTrader:
             # Drop from high
             drop_rate = (high_price - curr_price) / high_price
             if drop_rate >= ts_gap:
-                should_sell = True
-                reason = f"Trailing Stop (Max: {max_rate*100:.2f}%)"
+                # Trailing Stop Triggered
+                ts_confirm_secs = exit_cfg.get('trailing_stop_confirm_seconds', 0)
+                
+                if ts_confirm_secs > 0:
+                    # Increment Counter
+                    current_ts_cnt = slot.get('ts_confirm_count', 0) + 1
+                    slot['ts_confirm_count'] = current_ts_cnt
+                    
+                    if current_ts_cnt >= ts_confirm_secs:
+                        should_sell = True
+                        reason = f"Trailing Stop (Max: {max_rate*100:.2f}%, Confirmed {ts_confirm_secs}s)"
+                        slot['ts_confirm_count'] = 0
+                    else:
+                        self.log(f"Trailing Stop Pending for {market}: {current_ts_cnt}/{ts_confirm_secs}s (Drop: {drop_rate*100:.2f}%)")
+                        should_sell = False
+                else:
+                    should_sell = True
+                    reason = f"Trailing Stop (Max: {max_rate*100:.2f}%)"
+            else:
+                 # Reset count if price recovers
+                 if slot.get('ts_confirm_count', 0) > 0:
+                     self.log(f"Trailing Stop Reset for {market} (Recovered Drop: {drop_rate*100:.2f}%)")
+                     slot['ts_confirm_count'] = 0
 
         if should_sell:
             self.log(f"Triggering Market Sell for {market}. Reason: {reason}. Current: {profit_rate*100:.2f}%")
@@ -563,7 +664,19 @@ class AutoTrader:
                         active_slots = self.state.get('slots', [])
                         target_slot = next((s for s in active_slots if s['market'] == market), None)
                         if target_slot:
-                             self.sell_market(target_slot, "Panic Sell (Command)", 0.0)
+                             # Cancel existing order if any
+                             if target_slot.get('sell_order_uuid'):
+                                 self.upbit.cancel_order(target_slot['sell_order_uuid'])
+                                 time.sleep(1) # Wait for cancel
+                             
+                             # Sell all balance
+                             balance = self.upbit.get_balance(market)
+                             if balance > 0:
+                                 self.upbit.sell_market_order(market, balance)
+                                 self.record_trade(target_slot, "Panic Sell (Command)", 0.0, volume=balance)
+                             
+                             self.remove_slot(target_slot, cooldown=True)
+                             self.log(f"Panic Sell Executed for {market}")
                         else:
                             self.log(f"COMMAND FAILED: Slot not found for {market}")
                             
