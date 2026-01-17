@@ -83,19 +83,20 @@ UPBIT_SECRET_KEY=여기에_시크릿_키_입력
 mkdir -p logs
 ```
 
-### 5단계: 프로그램 실행 (백그라운드)
+### 5단계: 프로그램 실행 (간편 스크립트)
 
-`poetry run` 명령어를 사용하여 실행합니다.
+`run.sh` 스크립트를 사용하면 기존 프로세스를 종료하고 자동으로 재시작해줍니다.
 
-**1. 트레이딩 봇 실행**
+**1. 실행 권한 부여 (최초 1회)**
 ```bash
-nohup poetry run python src/myupbit01/trader.py > logs/trader.log 2>&1 &
+chmod +x run.sh
 ```
 
-**2. 대시보드 실행**
+**2. 프로그램 시작/재시작**
 ```bash
-nohup poetry run streamlit run src/myupbit01/app.py > logs/app.log 2>&1 &
+./run.sh
 ```
+실행 후 "Trader started" 등의 메시지가 뜨면 성공입니다.
 
 ### 6단계: 실행 확인 및 접속
 
@@ -109,6 +110,7 @@ nohup poetry run streamlit run src/myupbit01/app.py > logs/app.log 2>&1 &
     *   브라우저 주소창: `http://[퍼블릭IP]:8501`
 
 ### 참고: 프로그램 종료 방법
+`run.sh`를 실행하면 자동으로 재시작되지만, 아예 끄고 싶을 때는:
 ```bash
 pkill -f trader.py
 pkill -f streamlit
