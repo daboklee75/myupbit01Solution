@@ -7,9 +7,9 @@
         "moderate": 0.3
     },
     "limit_offsets": {
-        "strong": 0.003,
-        "moderate": 0.01,
-        "weak": 0.015
+        "strong": 0.001,
+        "moderate": 0.002,
+        "weak": 0.005
     },
     "exit_strategies": {
         "take_profit_target": "recent_high",
