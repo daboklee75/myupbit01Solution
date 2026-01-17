@@ -359,6 +359,16 @@ class AutoTrader:
                 # IMMEDIATE ACTION: Place Sell Limit at 3H High
                 self.place_profit_limit(slot)
                 self.save_state()
+            
+            elif state == 'wait':
+                 # Log progress if partially filled or just once in a while?
+                 # To avoid spam, maybe only if changed? or use debug log.
+                 # For now, let's log if executed_volume > 0
+                 # executed_vol = float(order.get('executed_volume', 0))
+                 # if executed_vol > 0:
+                 #    self.log(f"Buy Order {market} Partial Fill: {executed_vol} volume executed.")
+                 pass
+
                 
             elif state == 'cancel':
                 # External cancel or partial fill

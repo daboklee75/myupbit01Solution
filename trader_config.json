@@ -27,7 +27,7 @@
     "timeout_minutes": 15,
     "universes_count": 30,
     "TRADE_AMOUNT": 10000.0,
-    "MAX_SLOTS": 4,
+    "MAX_SLOTS": 6,
     "COOLDOWN_MINUTES": 30,
     "BUYING_POWER_THRESHOLD": 0.55,
     "VOL_SPIKE_RATIO": 3.0,
