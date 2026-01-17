@@ -626,7 +626,7 @@ def main():
                 df_filtered['Buy Price'] = df_filtered['buy_price'].apply(lambda x: f"{x:,.0f}")
                 
                 # Select and Rename Columns
-                display_cols = ['time', 'market', 'Analysis', 'Return (%)', 'reason', 'Sell Price', 'Buy Price']
+                display_cols = ['time', 'market', 'Analysis', 'Return (%)', 'reason', 'Buy Price', 'Sell Price']
                 df_final = df_filtered[display_cols].rename(columns={
                     'time': 'Time', 'market': 'Market', 'reason': 'Reason'
                 })
