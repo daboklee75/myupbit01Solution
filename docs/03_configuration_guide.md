@@ -16,7 +16,7 @@
     
     // 진입 민감도
     "MIN_ENTRY_SCORE": 15,              // 진입에 필요한 최소 점수 (높을수록 신중)
-    "min_slope_threshold": 0.5,         // [신규] 최소 기울기 필터 (0.5% 이상만 진입)
+    "min_slope_threshold": 0.5,         // [UI 설정가능] 최소 기울기 필터 (0.5% 이상만 진입)
     "RSI_THRESHOLD": 70.0,              // RSI 과매수 기준 (이보다 높으면 제외)
     "VOL_SPIKE_RATIO": 3.0,             // 거래량 급증 기준 (평균 대비 3배)
     

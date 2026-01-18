@@ -209,7 +209,12 @@ def main():
 
             st.divider()
             st.subheader("전략 설정")
+            # Score
             min_entry_score = st.number_input("최소 진입 점수", value=int(config.get("MIN_ENTRY_SCORE", 30)))
+            
+            # [NEW] Slope
+            min_slope_val = float(config.get("min_slope_threshold", 0.5))
+            min_slope = st.slider("최소 추세 기울기 (Slope %)", -1.0, 3.0, min_slope_val, step=0.1)
             
             # Exit Strategy
             exit_strategies = config.get("exit_strategies", {})
@@ -243,6 +248,7 @@ def main():
                 config["MAX_SLOTS"] = max_slots
                 config["COOLDOWN_MINUTES"] = cooldown
                 config["MIN_ENTRY_SCORE"] = min_entry_score
+                config["min_slope_threshold"] = min_slope # [NEW]
                 
                 # Update nested exit strategies
                 if "exit_strategies" not in config: config["exit_strategies"] = {}
@@ -507,13 +513,28 @@ def main():
             # df_scan = pd.DataFrame(candidates) # Removed duplicate line
             df_scan = pd.DataFrame(candidates)
             # Reorder cols
-            cols = ['korean_name', 'score', 'rsi', 'buy_ratio', 'vol_spike', 'price', 'price_change_1m']
+            # cols = ['korean_name', 'score', 'rsi', 'buy_ratio', 'vol_spike', 'price', 'price_change_1m']
+            
+            # [NEW] Enhanced Columns
+            cols = ['korean_name', 'market', 'score', 'slope', 'rsi', 'vol_ratio', 'channel_pos']
+            
             # Filter cols that exist
             cols = [c for c in cols if c in df_scan.columns]
             
-            st.dataframe(df_scan[cols], use_container_width=True)
+            # Rename for display
+            display_df = df_scan[cols].rename(columns={
+                'korean_name': 'Name',
+                'market': 'Market', 
+                'score': 'Score', 
+                'slope': 'Slope(%)', 
+                'rsi': 'RSI', 
+                'vol_ratio': 'Vol Ratio', 
+                'channel_pos': 'Channel'
+            })
             
-            st.caption("점수 가이드: 볼륨급등(20) + 추세강도(10) + 매수체결강도(10) + RSI(5) + 이동평균(5)")
+            st.dataframe(display_df, use_container_width=True)
+            
+            st.caption("💡 Tip: 점수와 기울기는 봇의 진입 판단 기준입니다. 설정에서 최소 기준을 변경할 수 있습니다.")
         else:
             st.info("조건에 맞는 종목이 없습니다.")
 

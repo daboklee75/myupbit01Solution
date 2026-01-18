@@ -276,15 +276,28 @@ class AutoTrader:
         self.state['last_search_time'] = now
         
         # 1. Get Ranked Targets (Multi-Target Logic)
-        min_score = int(self.config.get("MIN_ENTRY_SCORE", 30))
-        min_slope = float(self.config.get("min_slope_threshold", 0.0))
-        self.log(f"Searching for 3H trend targets (Min Score: {min_score}, Min Slope: {min_slope:.2f}%)...")
+        # [SCANNER CHANGE] Fetch ALL candidates for UI Display (No filtering)
+        # We fetch up to 50 candidates, min_score 0, min_slope -100 (basically everything)
+        all_targets = trend.get_ranked_targets(min_score=0, limit=50, min_slope=-100.0)
         
-        # [FIX] Use get_ranked_targets instead of get_best_target
-        ranked_targets = trend.get_ranked_targets(min_score=min_score, limit=3, min_slope=min_slope)
+        # Save results for UI Scanner (Show ALL)
+        self.save_scan_results(all_targets)
+        
+        # 2. Filter for Trading Entry
+        min_score = int(self.config.get("MIN_ENTRY_SCORE", 15))
+        min_slope = float(self.config.get("min_slope_threshold", 0.5))
+        
+        self.log(f"Filtering targets for entry (Min Score: {min_score}, Min Slope: {min_slope:.2f}%)...")
+        
+        ranked_targets = []
+        if all_targets:
+            ranked_targets = [
+                t for t in all_targets 
+                if t['score'] >= min_score and t['slope'] >= min_slope
+            ]
         
         if not ranked_targets:
-            # self.log("No valid target found.") # trend.py logs this now
+            # self.log("No valid target found after filtering.") 
             return
 
         # Loop through ranked targets
@@ -306,7 +319,7 @@ class AutoTrader:
             break
             
         if not best_target:
-            self.log("All candidates are held or in cooldown.")
+            self.log("All valid purchase candidates are held or in cooldown.")
             return
 
         market = best_target['market']
@@ -316,11 +329,7 @@ class AutoTrader:
         # Log selection
         self.log(f"Target Selected: {market} (Score: {score}, Slope: {slope:.2f}%)")
         
-        # Save results for UI/Log (just the selected one for now)
-        self.save_scan_results([best_target])
-        # trend.save_scan_history([best_target], filename=os.path.join(LOG_DIR, "scan_history.csv")) # removed
-
-        # 2. Calculate Limit Price (Dynamic)
+        # 3. Calculate Limit Price (Dynamic)
         current_price = best_target['price']
         
         # Get Offsets
