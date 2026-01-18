@@ -408,7 +408,21 @@ def main():
                     c2.metric("현재가 (Price)", f"{current_price:,.4f}") # Removed high price
                     
                     if status == "HOLDING":
-                         c3.metric("매수가 (Buy)", f"{entry_price:,.4f}")
+                         
+                         entry_cnt = slot.get('entry_cnt', 1)
+                         if entry_cnt > 1:
+                             # Multi-step
+                             init_p = float(slot.get('initial_buy_price', entry_price))
+                             water_p = float(slot.get('water_buy_price', 0))
+                             
+                             if water_p > 0:
+                                 sub_text = f"Init:{init_p:,.0f}/Add:{water_p:,.0f}"
+                             else:
+                                 sub_text = f"Initial: {init_p:,.0f}"
+                                 
+                             c3.metric("매수가 (평단/상세)", f"{entry_price:,.4f}", sub_text, delta_color="off")
+                         else:
+                             c3.metric("매수가 (Buy)", f"{entry_price:,.4f}")
                          
                          sell_price_display = float(slot.get('sell_limit_price', 0))
                          sell_msg = "-"

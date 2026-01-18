@@ -177,11 +177,20 @@ class AutoTrader:
                 # 3. Process Slots
                 active_slots = self.state.get("slots", [])
                 
-                # Check Market Condition (If needed, e.g. BTC crash)
-                # is_market_good = self.check_btc_condition() 
-                
+                # [Optimization] Batch fetch prices for all HOLDING slots to save API calls
+                holding_markets = [s['market'] for s in active_slots if s.get('status') == 'HOLDING']
+                curr_prices = {}
+                if holding_markets:
+                    try:
+                        curr_prices = pyupbit.get_current_price(holding_markets)
+                        # If single result, ensure it's a dict (pyupbit returns float for single, dict for list)
+                        if len(holding_markets) == 1 and isinstance(curr_prices, float):
+                             curr_prices = {holding_markets[0]: curr_prices}
+                    except Exception as e:
+                        self.log(f"Error fetching batch prices: {e}")
+
                 for i, slot in enumerate(active_slots):
-                    self.process_slot(slot)
+                    self.process_slot(slot, curr_prices)
 
                 # Remove done slots
                 self.state['slots'] = [s for s in active_slots if s.get('status') != 'DONE']
@@ -192,7 +201,7 @@ class AutoTrader:
                 if self.is_active:
                     self.try_search_and_enter()
                     
-                time.sleep(1)
+                time.sleep(0.2) # Faster loop for 1s response check
                 
             except Exception as e:
                 self.log(f"Error in main loop: {e}")
@@ -312,13 +321,17 @@ class AutoTrader:
         else:
             self.log(f"Order placement failed: {ret}")
 
-    def process_slot(self, slot):
+    def process_slot(self, slot, curr_prices=None):
         status = slot.get("status")
         
         if status == "BUY_WAIT":
             self.manage_buy_wait(slot)
         elif status == "HOLDING":
-            self.manage_holding(slot)
+            market = slot.get('market')
+            price = None
+            if curr_prices and market in curr_prices:
+                price = curr_prices[market]
+            self.manage_holding(slot, curr_price=price)
 
     def manage_buy_wait(self, slot):
         market = slot['market']
@@ -356,6 +369,7 @@ class AutoTrader:
                 
                 slot['status'] = "HOLDING"
                 slot['avg_buy_price'] = avg_price
+                slot['initial_buy_price'] = avg_price # [NEW] Store initial price
                 slot['entry_time'] = datetime.datetime.now().isoformat()
                 slot['entry_cnt'] = 1 # Initial Entry counted as 1
                 slot['highest_price'] = avg_price
@@ -387,6 +401,7 @@ class AutoTrader:
                     self.log(f"Order canceled but partially filled for {market}. Managing position.")
                     slot['status'] = "HOLDING"
                     slot['avg_buy_price'] = avg_price
+                    slot['initial_buy_price'] = avg_price # [NEW]
                     slot['entry_time'] = datetime.datetime.now().isoformat()
                     slot['highest_price'] = avg_price
                     slot['sell_order_uuid'] = None
@@ -430,9 +445,11 @@ class AutoTrader:
             else:
                 self.log(f"Failed to place TP Limit for {market}: {ret}")
 
-    def manage_holding(self, slot):
+    def manage_holding(self, slot, curr_price=None):
         market = slot['market']
-        curr_price = pyupbit.get_current_price(market)
+        if curr_price is None:
+             curr_price = pyupbit.get_current_price(market)
+             
         if not curr_price: return
         
         avg_price = slot['avg_buy_price']
@@ -487,9 +504,33 @@ class AutoTrader:
                          time.sleep(1) # Wait for fill
                          # Re-fetch average price and balance (total volume)
                          avg_price = self.upbit.get_avg_buy_price(market)
+                         
+                         # [NEW] Calculate Watering Price
+                         water_price = 0
+                         try:
+                             order_info = self.upbit.get_order(ret['uuid'])
+                             if order_info and 'trades' in order_info and len(order_info['trades']) > 0:
+                                 # Weighted avg of filled trades
+                                 total_v = sum([float(t.get('volume',0)) for t in order_info['trades']])
+                                 total_f = sum([float(t.get('funds',0)) for t in order_info['trades']])
+                                 if total_v > 0: water_price = total_f / total_v
+                             elif order_info and 'price' in order_info: # Fallback
+                                 water_price = float(order_info.get('price', 0) or 0)
+                                 # If market order, price might be None, check executed fields
+                                 if water_price == 0 and float(order_info.get('executed_volume',0)) > 0:
+                                      water_price = float(order_info.get('executed_funds',0)) / float(order_info.get('executed_volume',1))
+                         except Exception as e:
+                             self.log(f"Error fetching water price: {e}")
+                         
+                         slot['water_buy_price'] = water_price
+                         
                          slot['avg_buy_price'] = avg_price
                          slot['entry_cnt'] = current_entry_cnt + 1
                          slot['sell_order_uuid'] = None # Reset
+                         
+                         # [FIX] Reset highest_price to new avg_price to prevent premature trailing stop
+                         slot['highest_price'] = avg_price
+                         
                          self.log(f"Add-Buy Executed. New Avg Price: {avg_price}")
                          
                          # 5. Re-place Profit Limit
@@ -577,8 +618,16 @@ class AutoTrader:
             if drop_rate >= ts_gap:
                 # Trailing Stop Triggered
                 ts_confirm_secs = exit_cfg.get('trailing_stop_confirm_seconds', 0)
-                
-                if ts_confirm_secs > 0:
+
+                # [Logic Change] If Add-Buy happened (entry_cnt > 1), DISABLE Trailing Stop
+                # to prioritize the safer Limit Sell (Take Profit) exit.
+                if slot.get('entry_cnt', 1) > 1:
+                     # Just reset count and do NOT sell via TS
+                     if slot.get('ts_confirm_count', 0) > 0:
+                         slot['ts_confirm_count'] = 0
+                     should_sell = False
+                     # Optional: Log once? "Skipping TS for Add-Buy slot, waiting for TP Limit"
+                elif ts_confirm_secs > 0:
                     # Increment Counter
                     current_ts_cnt = slot.get('ts_confirm_count', 0) + 1
                     slot['ts_confirm_count'] = current_ts_cnt
