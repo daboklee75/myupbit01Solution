@@ -218,20 +218,20 @@ def main():
             # [NEW] TP Ratio
             tp_ratio = st.slider("익절 비율 (전고점 대비 %)", 10, 100, int(float(exit_strategies.get("take_profit_ratio", 0.5)) * 100)) / 100.0
             
-            stop_loss = st.slider("손절 기준 (%)", -10.0, -0.1, float(exit_strategies.get("stop_loss", 0.05)) * -100) / -100
+            stop_loss = st.slider("손절 기준 (%)", -30.0, -0.1, float(exit_strategies.get("stop_loss", 0.05)) * -100) / -100
             trailing_trigger = st.slider("트레일링 시작 (%)", 0.1, 5.0, float(exit_strategies.get("trailing_stop_trigger", 0.008)) * 100) / 100
             trailing_gap = st.slider("트레일링 감지 폭 (%)", 0.1, 2.0, float(exit_strategies.get("trailing_stop_gap", 0.002)) * 100) / 100
             
             # Add-Buy Config
             st.markdown("#### 💧 물타기 설정 (Add-Buy)")
-            max_add_buys = st.number_input("물타기 최대 횟수 (0 = 사용 안 함)", min_value=0, max_value=3, value=int(exit_strategies.get("max_add_buys", 0)))
+            max_add_buys = st.number_input("물타기 최대 횟수 (0 = 사용 안 함)", min_value=0, max_value=10, value=int(exit_strategies.get("max_add_buys", 0)))
             
             if max_add_buys == 0:
                 st.caption("🚫 물타기 기능이 꺼져 있습니다. (칼손절 모드)")
                 add_buy_trigger = float(exit_strategies.get("add_buy_trigger", -0.05)) # Keep current val visible but disabled concept
             else:
                 add_buy_val = float(exit_strategies.get("add_buy_trigger", -0.03)) * 100
-                add_buy_trigger = st.slider("물타기 (Add-Buy) 기준 (%)", -10.0, -0.5, add_buy_val) / 100
+                add_buy_trigger = st.slider("물타기 (Add-Buy) 기준 (%)", -20.0, -0.5, add_buy_val) / 100
             
             # [NEW] Add-Buy Amount Ratio
             ab_amt_val = int(float(exit_strategies.get("add_buy_amount_ratio", 1.0)) * 100)

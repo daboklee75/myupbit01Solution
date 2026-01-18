@@ -40,17 +40,17 @@
     
     // 청산 전략 (Exit Strategy)
     "exit_strategies": {
-        "stop_loss": 0.03,              // [축소] 손절 기준 (-3.0%, 칼손절)
-        "stop_loss_confirm_seconds": 1, // 손절 확정 대기 시간 (1초, 즉시 반응)
+        "stop_loss": 0.15,              // [전략 C] 손절 기준 확대 (-15%)
+        "stop_loss_confirm_seconds": 1, // 손절 확정 대기 시간
         "trailing_stop_trigger": 0.012, // 트레일링 스탑 발동 조건 (1.2% 수익 시)
         "trailing_stop_gap": 0.005,     // 트레일링 스탑 감지 폭 (0.5% 하락 시)
-        "trailing_stop_confirm_seconds": 1, // 익절 확정 대기 시간 (1초, 즉시 반응)
-        "break_even_trigger": 0.010,    // [상향] 본절 보호 발동 (1.0% 수익 시)
+        "trailing_stop_confirm_seconds": 1, 
+        "break_even_trigger": 0.015,    // [전략 C] 본절 보호 발동 상향 (1.5% 수익 시)
         "break_even_sl": 0.001,         // 본절 보호 시 새로운 손절 라인
-        "take_profit_target": "recent_high", // 익절 목표 기준 (최근 고점 몸통)
-        "take_profit_ratio": 0.5,       // [신규] 고점 반영 비율 (0.5 = 매수가와 고점의 중간 50%)
-        "add_buy_trigger": -0.05,       // [하향] 추가 매수(물타기) 발동 조건 (수익률 -5.0% 도달 시)
-        "max_add_buys": 0,              // [중지] 종목당 최대 추가 매수 횟수 (0회, 사용 안 함)
+        "take_profit_target": "recent_high", 
+        "take_profit_ratio": 0.5,       
+        "add_buy_trigger": -0.05,       // [전략 C] 물타기 발동 조건 (-5.0% 도달 시)
+        "max_add_buys": 3,              // [전략 C] 물타기 최대 3회 허용
         "add_buy_amount_ratio": 1.0
     },
     
