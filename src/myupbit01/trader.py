@@ -213,10 +213,11 @@ class AutoTrader:
         
         # 1. Get Ranked Targets (Multi-Target Logic)
         min_score = int(self.config.get("MIN_ENTRY_SCORE", 30))
-        self.log(f"Searching for 3H trend targets (Min Score: {min_score})...")
+        min_slope = float(self.config.get("min_slope_threshold", 0.0))
+        self.log(f"Searching for 3H trend targets (Min Score: {min_score}, Min Slope: {min_slope:.2f}%)...")
         
         # [FIX] Use get_ranked_targets instead of get_best_target
-        ranked_targets = trend.get_ranked_targets(min_score=min_score, limit=3)
+        ranked_targets = trend.get_ranked_targets(min_score=min_score, limit=3, min_slope=min_slope)
         
         if not ranked_targets:
             # self.log("No valid target found.") # trend.py logs this now

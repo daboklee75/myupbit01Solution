@@ -206,7 +206,7 @@ def get_best_target(min_score=30):
              logger.info(f"Rank {i+2}: {cand['market']} (Score: {cand['score']}, Slope: {cand['slope']:.2f}%)")
         return None
 
-def get_ranked_targets(min_score=30, limit=3):
+def get_ranked_targets(min_score=30, limit=3, min_slope=0.0):
     """
     Returns a list of targets meeting the min_score, sorted by Score DESC, Slope DESC.
     """
@@ -221,6 +221,11 @@ def get_ranked_targets(min_score=30, limit=3):
         
         trend_data = analyze_trend(market)
         if trend_data:
+            # Filter by Slope
+            if trend_data['slope'] < min_slope:
+                # logger.debug(f"Skipping {market}: Slope {trend_data['slope']:.2f}% < {min_slope:.2f}%")
+                continue
+                
             score = score_trend(trend_data)
             trend_data['score'] = score
             trend_data['korean_name'] = coin['korean_name']
