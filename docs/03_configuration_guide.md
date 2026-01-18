@@ -16,7 +16,7 @@
     
     // 진입 민감도
     "MIN_ENTRY_SCORE": 15,              // 진입에 필요한 최소 점수 (높을수록 신중)
-    "min_slope_threshold": 0.3,         // [신규] 최소 기울기 필터 (0.3% 이상만 진입)
+    "min_slope_threshold": 0.7,         // [신규] 최소 기울기 필터 (0.7% 이상만 진입)
     "RSI_THRESHOLD": 70.0,              // RSI 과매수 기준 (이보다 높으면 제외)
     "VOL_SPIKE_RATIO": 3.0,             // 거래량 급증 기준 (평균 대비 3배)
     
@@ -33,17 +33,18 @@
     
     // 청산 전략 (Exit Strategy)
     "exit_strategies": {
-        "stop_loss": 0.05,              // 손절 기준 (5.0%)
-        "stop_loss_confirm_seconds": 1, // [수정] 손절 확정 대기 시간 (1초로 단축, 즉시 반응)
-        "trailing_stop_trigger": 0.012, // [수정] 트레일링 스탑 발동 조건 (1.2% 수익 시)
-        "trailing_stop_gap": 0.005,     // [수정] 트레일링 스탑 감지 폭 (0.5% 하락 시)
-        "trailing_stop_confirm_seconds": 1, // [수정] 익절 확정 대기 시간 (1초로 단축, 즉시 반응)
-        "break_even_trigger": 0.007,    // 본절 보호 발동 조건
-        "break_even_sl": 0.0005,        // 본절 보호 시 새로운 손절 라인
+        "stop_loss": 0.03,              // [축소] 손절 기준 (-3.0%, 칼손절)
+        "stop_loss_confirm_seconds": 1, // 손절 확정 대기 시간 (1초, 즉시 반응)
+        "trailing_stop_trigger": 0.012, // 트레일링 스탑 발동 조건 (1.2% 수익 시)
+        "trailing_stop_gap": 0.005,     // 트레일링 스탑 감지 폭 (0.5% 하락 시)
+        "trailing_stop_confirm_seconds": 1, // 익절 확정 대기 시간 (1초, 즉시 반응)
+        "break_even_trigger": 0.010,    // [상향] 본절 보호 발동 (1.0% 수익 시)
+        "break_even_sl": 0.001,         // 본절 보호 시 새로운 손절 라인
         "take_profit_target": "recent_high", // 익절 목표 기준 (최근 고점 몸통)
         "take_profit_ratio": 0.5,       // [신규] 고점 반영 비율 (0.5 = 매수가와 고점의 중간 50%)
-        "add_buy_trigger": -0.03,       // [신규] 추가 매수(물타기) 발동 조건 (수익률 -3.0% 도달 시)
-        "max_add_buys": 1               // [신규] 종목당 최대 추가 매수 횟수 (1회 제한)
+        "add_buy_trigger": -0.05,       // [하향] 추가 매수(물타기) 발동 조건 (수익률 -5.0% 도달 시)
+        "max_add_buys": 0,              // [중지] 종목당 최대 추가 매수 횟수 (0회, 사용 안 함)
+        "add_buy_amount_ratio": 1.0
     },
     
     "timeout_minutes": 15,              // 지정가 주문 대기 시간 (분)
