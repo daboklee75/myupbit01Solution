@@ -33,7 +33,15 @@ def calculate_slope(prices):
     x = np.arange(len(y))
     
     # Linear Regression: y = ax + b
-    slope_val, intercept = np.polyfit(x, y, 1)
+    # [MODIFIED] Weighted Linear Regression
+    # Give nore weight to recent data (last 2 candles)
+    weights = np.ones(len(y))
+    if len(y) >= 4:
+         # Example for 4 candles: [1, 1, 3, 3]
+         weights[-2:] = 3.0
+    
+    # polyfit with weights
+    slope_val, intercept = np.polyfit(x, y, 1, w=weights)
     
     avg_price = np.mean(y)
     if avg_price == 0: return 0.0
@@ -134,9 +142,9 @@ def score_trend(data):
         
     # 2. Channel Position (Pullback)
     if data['channel_pos'] <= 0.3:
-        score += 15 # Best Buy Zone (Low 30%)
+        score += 5 # Best Buy Zone (Low 30%) - Reduced
     elif data['channel_pos'] <= 0.6:
-        score += 5  # Stable Zone (Mid 30-60%)
+        score += 2  # Stable Zone (Mid 30-60%) - Reduced
         
     # 3. Volume Support
     if data['vol_ratio'] > 1.5:

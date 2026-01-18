@@ -7,7 +7,7 @@
 ```json
 {
     "candle_interval": "minute15",      // 캔들 기준 (건드리지 마세요)
-    "analysis_period_candles": 12,      // 3시간 데우터 분석 (건드리지 마세요)
+    "analysis_period_candles": 4,       // 1시간 데이터 분석 (최근 15분x4 = 1시간, 가중치 적용)
     
     // 매매 기본 설정
     "TRADE_AMOUNT": 10000.0,            // 1회 매수 금액 (KRW)

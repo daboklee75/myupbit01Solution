@@ -1,6 +1,6 @@
 {
     "candle_interval": "minute15",
-    "analysis_period_candles": 12,
+    "analysis_period_candles": 4,
     "volume_threshold_rate": 1.0,
     "slope_thresholds": {
         "strong": 2.0,
