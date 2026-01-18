@@ -11,6 +11,11 @@
         "moderate": 0.002,
         "weak": 0.005
     },
+    "market_filter": {
+        "use_btc_filter": true,
+        "btc_1h_drop_threshold": -0.015,
+        "btc_3h_slope_threshold": -0.5
+    },
     "exit_strategies": {
         "take_profit_target": "recent_high",
         "take_profit_ratio": 0.5,
@@ -34,5 +39,5 @@
     "VOL_SPIKE_RATIO": 3.0,
     "RSI_THRESHOLD": 70.0,
     "MIN_ENTRY_SCORE": 15,
-    "min_slope_threshold": 0.7
+    "min_slope_threshold": 0.5
 }

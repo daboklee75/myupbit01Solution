@@ -199,13 +199,68 @@ class AutoTrader:
 
                 # 4. Search & Enter
                 if self.is_active:
-                    self.try_search_and_enter()
+                    # [NEW] Check Global Market Condition (BTC Filter)
+                    if self.check_market_condition():
+                         self.try_search_and_enter()
                     
                 time.sleep(0.2) # Faster loop for 1s response check
                 
             except Exception as e:
                 self.log(f"Error in main loop: {e}")
                 time.sleep(5)
+    
+    def check_market_condition(self):
+        """
+        Check if the general market (BTC) is safe to enter.
+        Returns True if safe, False if unsafe.
+        """
+        market_filter_cfg = self.config.get("market_filter", {})
+        if not market_filter_cfg.get("use_btc_filter", False):
+            return True # Filter disabled
+
+        try:
+            btc_market = "KRW-BTC"
+            
+            # 1. Check 1H Drop
+            # Get ticker (change rate is usually 24h, so we need OHLCV for 1h)
+            # Fetch recent candles to check short-term drop
+            df = pyupbit.get_ohlcv(btc_market, interval="minute60", count=2) 
+            if df is not None:
+                # Calculate change from previous close (or just use current candle open vs close if 1h candle)
+                # Better: Check current price vs 1 hour ago price
+                # But get_ohlcv(minute60) gives completed or partial? 
+                # Let's use get_ohlcv("minute1", count=60) for slider window? Too heavy.
+                # Simple Logic: Current Price vs Open of current 1H candle? No.
+                # Simple Logic: Current Price vs Close of 1H ago.
+                
+                curr_price = pyupbit.get_current_price(btc_market)
+                prev_close_1h = df['close'].iloc[-2] # Last completed candle close
+                
+                drop_rate = (curr_price - prev_close_1h) / prev_close_1h
+                drop_threshold = market_filter_cfg.get("btc_1h_drop_threshold", -0.015)
+                
+                if drop_rate < drop_threshold:
+                    self.log(f"📉 Market Unsafe: BTC 1H Drop {drop_rate*100:.2f}% < Threshold {drop_threshold*100:.2f}%")
+                    return False
+
+            # 2. Check 3H Slope (Trend)
+            # Use trend.analyze_trend for BTC
+            # It uses 15m candles * 12 = 3 Hours
+            # We can re-use the trend module
+            btc_trend = trend.analyze_trend(btc_market)
+            if btc_trend:
+                slope = btc_trend['slope']
+                slope_threshold = market_filter_cfg.get("btc_3h_slope_threshold", -0.5)
+                
+                if slope < slope_threshold:
+                    self.log(f"📉 Market Unsafe: BTC 3H Slope {slope:.2f}% < Threshold {slope_threshold:.2f}%")
+                    return False
+            
+            return True
+            
+        except Exception as e:
+            self.log(f"Error checking market condition: {e}")
+            return True # Fail-safe: Allow if check fails? Or Block? Let's Allow to avoid freezing on API error.
 
     def try_search_and_enter(self):
         # Check Slot Availability

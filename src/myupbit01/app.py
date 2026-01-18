@@ -191,6 +191,23 @@ def main():
             
             # Updated Strategy Configs
             st.divider()
+            # Updated Strategy Configs
+            st.divider()
+            st.subheader("🛡️ 시장 방어 필터 (비트코인 연동)")
+            market_filter = config.get("market_filter", {})
+            use_btc_filter = st.checkbox("비트코인 연동 방어 사용", value=market_filter.get("use_btc_filter", True))
+            
+            if use_btc_filter:
+                btc_drop_val = float(market_filter.get("btc_1h_drop_threshold", -0.015)) * 100
+                btc_drop_threshold = st.slider("BTC 1시간 급락 감지 (%)", -5.0, -0.5, btc_drop_val) / 100
+                
+                btc_slope_val = float(market_filter.get("btc_3h_slope_threshold", -0.5))
+                btc_slope_threshold = st.slider("BTC 3시간 추세 이탈 감지 (%)", -2.0, -0.1, btc_slope_val, step=0.1)
+            else:
+                btc_drop_threshold = -0.015
+                btc_slope_threshold = -0.5
+
+            st.divider()
             st.subheader("전략 설정")
             min_entry_score = st.number_input("최소 진입 점수", value=int(config.get("MIN_ENTRY_SCORE", 30)))
             
@@ -238,6 +255,13 @@ def main():
                 config["exit_strategies"]["max_add_buys"] = max_add_buys # [NEW]
                 config["exit_strategies"]["add_buy_trigger"] = add_buy_trigger
                 config["exit_strategies"]["add_buy_amount_ratio"] = add_buy_amt_ratio
+                config["exit_strategies"]["add_buy_amount_ratio"] = add_buy_amt_ratio
+                
+                # Update Market Filter
+                if "market_filter" not in config: config["market_filter"] = {}
+                config["market_filter"]["use_btc_filter"] = use_btc_filter
+                config["market_filter"]["btc_1h_drop_threshold"] = btc_drop_threshold
+                config["market_filter"]["btc_3h_slope_threshold"] = btc_slope_threshold
                 
                 # Save config
                 save_json(CONFIG_FILE, config)
