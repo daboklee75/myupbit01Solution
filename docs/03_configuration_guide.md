@@ -45,8 +45,8 @@
         "trailing_stop_trigger": 0.012, // 트레일링 스탑 발동 조건 (1.2% 수익 시)
         "trailing_stop_gap": 0.005,     // 트레일링 스탑 감지 폭 (0.5% 하락 시)
         "trailing_stop_confirm_seconds": 1, 
-        "break_even_trigger": 0.003,    // [수정] 본절 보호 발동 (0.3% 수익 시)
-        "break_even_sl": 0.001,         // 본절 보호 시 새로운 손절 라인
+        "break_even_trigger": 0.005,    // [수정] 본절 보호 발동 (0.5% 수익 시)
+        "break_even_sl": 0.003,         // 본절 보호 시 새로운 손절 라인
         "take_profit_target": "recent_high", 
         "take_profit_ratio": 0.5,       
         "add_buy_trigger": -0.05,       // [전략 C] 물타기 발동 조건 (-5.0% 도달 시)

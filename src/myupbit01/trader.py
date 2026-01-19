@@ -776,7 +776,9 @@ class AutoTrader:
             "pnl": pnl,
             "volume": volume,
             "reason": reason,
-            "profit_rate": profit_rate
+            "profit_rate": profit_rate,
+            "entry_cnt": slot.get('entry_cnt', 1),
+            "trade_history_log": slot.get('trade_history_log', [])
         }
         history.append(record)
         with open(HISTORY_FILE, 'w', encoding='utf-8') as f:

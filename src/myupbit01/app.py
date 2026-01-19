@@ -194,16 +194,38 @@ def process_history_data(history, trade_amt_default):
         reason = row.get('reason', '')
         pnl_rate = row.get('profit_rate', 0)
         
+        analysis = ""
         if "Trailing Stop" in reason:
-            return "🟢 [성공] 목표 수익 도달 후 익절"
+            analysis = "🟢 [성공] 목표 수익 도달 후 익절"
         elif "Stop Loss" in reason:
-            return "🔴 [손절] 손실 제한 매도 실행"
+            analysis = "🔴 [손절] 손실 제한 매도 실행"
         elif "Sudden Drop" in reason:
-            return "🛡️ [방어] 급락 감지되어 긴급 매도"
+            analysis = "🛡️ [방어] 급락 감지되어 긴급 매도"
         elif pnl_rate > 0:
-            return "🟢 [익절] 수익 실현"
+            analysis = "🟢 [익절] 수익 실현"
         else:
-            return "⚪ [매도] 기타 사유"
+            analysis = "⚪ [매도] 기타 사유"
+        
+        # Add-Buy Info
+        trade_log = row.get('trade_history_log', [])
+        entry_cnt = row.get('entry_cnt', 1)
+        
+        if isinstance(trade_log, list) and trade_log:
+            # New format with log
+            adds = [item for item in trade_log if item.get('type') == 'Add']
+            if adds:
+                prices = []
+                for a in adds:
+                    p = float(a.get('price', 0))
+                    # Use sufficient precision
+                    p_str = f"{p:,.4f}" if p < 100 else f"{p:,.1f}" if p < 1000 else f"{p:,.0f}"
+                    prices.append(p_str)
+                analysis += f"\n(물타기: {len(adds)}회 @ {', '.join(prices)})"
+        elif entry_cnt > 1:
+            # Legacy format
+            analysis += f"\n(물타기: {entry_cnt-1}회)"
+            
+        return analysis
             
     df['Analysis'] = df.apply(generate_analysis, axis=1)
     
@@ -211,8 +233,12 @@ def process_history_data(history, trade_amt_default):
     df['Return (%)'] = df.apply(
         lambda row: f"{row['profit_rate']*100:+.2f}% ({row['pnl']:+,.0f} KRW)", axis=1
     )
-    df['Sell Price'] = df['sell_price'].apply(lambda x: f"{x:,.0f}")
-    df['Buy Price'] = df['buy_price'].apply(lambda x: f"{x:,.0f}")
+    
+    def fmt_price_col(x):
+        return f"{x:,.4f}" if x < 100 else f"{x:,.1f}" if x < 1000 else f"{x:,.0f}"
+
+    df['Sell Price'] = df['sell_price'].apply(fmt_price_col)
+    df['Buy Price'] = df['buy_price'].apply(fmt_price_col)
     
     return df
 
