@@ -101,6 +101,72 @@ def load_json(filepath):
     return {}
 
 @st.cache_data(ttl=60)
+def load_balances_cached():
+    """
+    Fetch balances and current prices with caching to prevent API rate limits and UI lag.
+    """
+    try:
+        access = os.getenv("UPBIT_ACCESS_KEY")
+        secret = os.getenv("UPBIT_SECRET_KEY")
+        if not access or not secret:
+            return None, [], 0
+
+        upbit = pyupbit.Upbit(access, secret)
+        balances = upbit.get_balances()
+        
+        if not balances:
+            return None, [], 0
+
+        df_bal = pd.DataFrame(balances)
+        df_bal['balance'] = df_bal['balance'].astype(float)
+        df_bal['avg_buy_price'] = df_bal['avg_buy_price'].astype(float)
+        
+        total_krw = 0
+        pie_data = []
+        
+        # Optimize: Batch price fetch if possible, but pyupbit.get_current_price(list) works?
+        # Let's collect tickers first
+        tickers = []
+        for idx, row in df_bal.iterrows():
+            if row['currency'] != "KRW":
+                tickers.append(f"KRW-{row['currency']}")
+        
+        current_prices = {}
+        if tickers:
+            current_prices = pyupbit.get_current_price(tickers)
+            if not isinstance(current_prices, dict):
+                # if single result or None, handle carefully. 
+                # get_current_price list returns dict {ticker: price} normally.
+                if isinstance(current_prices, float) or isinstance(current_prices, int):
+                     current_prices = {tickers[0]: current_prices}
+                elif current_prices is None:
+                     current_prices = {}
+
+        for idx, row in df_bal.iterrows():
+            currency = row['currency']
+            if currency == "KRW":
+                val = row['balance']
+                total_krw += val
+                pie_data.append({"Currency": "KRW", "Value": val})
+            else:
+                ticker = f"KRW-{currency}"
+                curr_p = current_prices.get(ticker, 0)
+                
+                if curr_p > 0:
+                    val = row['balance'] * curr_p
+                    total_krw += val
+                    pie_data.append({"Currency": currency, "Value": val})
+                else:
+                    # Fallback to avg buy price
+                    val = row['balance'] * row['avg_buy_price']
+                    total_krw += val
+                    pie_data.append({"Currency": currency, "Value": val})
+                    
+        return df_bal, pie_data, total_krw
+    except Exception as e:
+        return None, [], 0
+
+@st.cache_data(ttl=60)
 def process_history_data(history, trade_amt_default):
     """
     Process raw history data into a DataFrame with calculated metrics.
@@ -501,31 +567,39 @@ def main():
                          trade_log = slot.get('trade_history_log', [])
                          
                          sub_text = ""
+                         
+                         # Helper for consistent price formatting
+                         def fmt_p(p):
+                             return f"{p:,.0f}" if p >= 100 else f"{p:,.2f}"
+
                          if trade_log:
-                             # Format: Init: 01.19(74) / Add 01.19(66)
+                             # Format: Init 01.19(74) / Add 01.19(66)
                              parts = []
                              for item in trade_log:
                                  t_type = item.get('type', 'Buy') # Init or Add
                                  t_price = float(item.get('price', 0))
                                  t_time = item.get('time', '') # MM.DD
                                  
-                                 # Format price (int or float)
-                                 p_str = f"{t_price:,.0f}" if t_price >= 100 else f"{t_price:,.2f}"
+                                 # Format Type (Init/Add usually)
+                                 display_type = "Init" if t_type == "Init" else "Add"
                                  
-                                 parts.append(f"{t_type} {t_time}({p_str})")
+                                 parts.append(f"{display_type} {t_time}({fmt_p(t_price)})")
                                  
                              sub_text = " / ".join(parts)
                          elif entry_cnt > 1:
-                             # Legacy Fallback
+                             # Legacy Fallback (Multi-step but no log)
                              init_p = float(slot.get('initial_buy_price', entry_price))
                              water_p = float(slot.get('water_buy_price', 0))
                              
                              if water_p > 0:
-                                 sub_text = f"Init:{init_p:,.0f}/Add:{water_p:,.0f}"
+                                 # Init: 100 / Add: 90
+                                 sub_text = f"Init({fmt_p(init_p)}) / Add({fmt_p(water_p)})"
                              else:
-                                 sub_text = f"Initial: {init_p:,.0f}"
+                                 sub_text = f"Init({fmt_p(init_p)})"
                          else:
-                             sub_text = "Initial Entry"
+                             # Single Entry (Legacy or just started)
+                             # Show Init price same as entry price
+                             sub_text = f"Init({fmt_p(entry_price)})"
                                  
                          c3.metric("매수가 (평단/상세)", f"{entry_price:,.4f}", sub_text, delta_color="off")
                          
@@ -608,41 +682,10 @@ def main():
     with tab3:
         st.subheader("자산 현황 (Assets)")
         try:
-            # Fetch balances (Caution: API limit)
-            access = os.getenv("UPBIT_ACCESS_KEY")
-            secret = os.getenv("UPBIT_SECRET_KEY")
-            upbit = pyupbit.Upbit(access, secret)
-            balances = upbit.get_balances()
+            # Use cached function to prevent API bottleneck on every rerun
+            df_bal, pie_data, total_krw = load_balances_cached()
             
-            if balances:
-                df_bal = pd.DataFrame(balances)
-                df_bal['balance'] = df_bal['balance'].astype(float)
-                df_bal['avg_buy_price'] = df_bal['avg_buy_price'].astype(float)
-                
-                # Get current prices for total value
-                total_krw = 0
-                pie_data = []
-                
-                for idx, row in df_bal.iterrows():
-                    currency = row['currency']
-                    if currency == "KRW":
-                        val = row['balance']
-                        total_krw += val
-                        pie_data.append({"Currency": "KRW", "Value": val})
-                    else:
-                        # Estimate value
-                        ticker = f"KRW-{currency}"
-                        curr_p = pyupbit.get_current_price(ticker)
-                        if curr_p:
-                            val = row['balance'] * curr_p
-                            total_krw += val
-                            pie_data.append({"Currency": currency, "Value": val})
-                        else:
-                            # Use avg buy price if current not avail
-                            val = row['balance'] * row['avg_buy_price']
-                            total_krw += val
-                            pie_data.append({"Currency": currency, "Value": val})
-
+            if df_bal is not None and not df_bal.empty:
                 st.metric("Total Asset Value (Est.)", f"{total_krw:,.0f} KRW")
                 
                 c1, c2 = st.columns(2)
@@ -650,9 +693,11 @@ def main():
                 
                 df_pie = pd.DataFrame(pie_data)
                 c2.write("Asset Allocation")
-                # Pie chart simple
-                st.bar_chart(df_pie.set_index("Currency"))
-                
+                if not df_pie.empty:
+                    st.bar_chart(df_pie.set_index("Currency"))
+            else:
+                 st.info("No assets found or API error.")
+                 
         except Exception as e:
             st.error(f"Error fetching balances: {e}")
 
@@ -685,15 +730,19 @@ def main():
                         if len(selected_date) == 2:
                             start, end = selected_date
                             mask = (df_processed['date_dt'] >= start) & (df_processed['date_dt'] <= end)
+                            date_label = f"{start} ~ {end}"
                         elif len(selected_date) == 1:
-                            mask = df_processed['date_dt'] == selected_date[0]
+                            start = selected_date[0]
+                            mask = df_processed['date_dt'] == start
+                            date_label = f"{start}"
                         else:
                             mask = pd.Series([True] * len(df_processed))
+                            date_label = "All Time"
                     else:
                         mask = df_processed['date_dt'] == selected_date
+                        date_label = f"{selected_date}"
                         
                     df_filtered = df_processed.loc[mask]
-                    date_label = str(selected_date)
                 else:
                     df_filtered = df_processed
                     date_label = "Total"
