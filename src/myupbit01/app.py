@@ -100,6 +100,56 @@ def load_json(filepath):
             return {}
     return {}
 
+@st.cache_data(ttl=60)
+def process_history_data(history, trade_amt_default):
+    """
+    Process raw history data into a DataFrame with calculated metrics.
+    Cached to avoid re-calculation on every render.
+    """
+    if not history:
+        return pd.DataFrame()
+        
+    df = pd.DataFrame(history)
+    
+    # 1. Date Conversion
+    if 'date' in df.columns:
+        df['date_dt'] = pd.to_datetime(df['date']).dt.date
+    
+    # 2. PnL Calculation
+    if 'pnl' not in df.columns:
+        df['pnl'] = df['profit_rate'] * trade_amt_default
+        
+    # 3. Sell Price Calculation
+    if 'sell_price' not in df.columns:
+        df['sell_price'] = df['buy_price'] * (1 + df['profit_rate'])
+        
+    # 4. Analysis Generation
+    def generate_analysis(row):
+        reason = row.get('reason', '')
+        pnl_rate = row.get('profit_rate', 0)
+        
+        if "Trailing Stop" in reason:
+            return "🟢 [성공] 목표 수익 도달 후 익절"
+        elif "Stop Loss" in reason:
+            return "🔴 [손절] 손실 제한 매도 실행"
+        elif "Sudden Drop" in reason:
+            return "🛡️ [방어] 급락 감지되어 긴급 매도"
+        elif pnl_rate > 0:
+            return "🟢 [익절] 수익 실현"
+        else:
+            return "⚪ [매도] 기타 사유"
+            
+    df['Analysis'] = df.apply(generate_analysis, axis=1)
+    
+    # 5. Formatting
+    df['Return (%)'] = df.apply(
+        lambda row: f"{row['profit_rate']*100:+.2f}% ({row['pnl']:+,.0f} KRW)", axis=1
+    )
+    df['Sell Price'] = df['sell_price'].apply(lambda x: f"{x:,.0f}")
+    df['Buy Price'] = df['buy_price'].apply(lambda x: f"{x:,.0f}")
+    
+    return df
+
 def save_json(filepath, data):
     with open(filepath, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
@@ -606,55 +656,7 @@ def main():
         except Exception as e:
             st.error(f"Error fetching balances: {e}")
 
-@st.cache_data(ttl=60)
-def process_history_data(history, trade_amt_default):
-    """
-    Process raw history data into a DataFrame with calculated metrics.
-    Cached to avoid re-calculation on every render.
-    """
-    if not history:
-        return pd.DataFrame()
-        
-    df = pd.DataFrame(history)
-    
-    # 1. Date Conversion
-    if 'date' in df.columns:
-        df['date_dt'] = pd.to_datetime(df['date']).dt.date
-    
-    # 2. PnL Calculation
-    if 'pnl' not in df.columns:
-        df['pnl'] = df['profit_rate'] * trade_amt_default
-        
-    # 3. Sell Price Calculation
-    if 'sell_price' not in df.columns:
-        df['sell_price'] = df['buy_price'] * (1 + df['profit_rate'])
-        
-    # 4. Analysis Generation
-    def generate_analysis(row):
-        reason = row.get('reason', '')
-        pnl_rate = row.get('profit_rate', 0)
-        
-        if "Trailing Stop" in reason:
-            return "🟢 [성공] 목표 수익 도달 후 익절"
-        elif "Stop Loss" in reason:
-            return "🔴 [손절] 손실 제한 매도 실행"
-        elif "Sudden Drop" in reason:
-            return "🛡️ [방어] 급락 감지되어 긴급 매도"
-        elif pnl_rate > 0:
-            return "🟢 [익절] 수익 실현"
-        else:
-            return "⚪ [매도] 기타 사유"
-            
-    df['Analysis'] = df.apply(generate_analysis, axis=1)
-    
-    # 5. Formatting
-    df['Return (%)'] = df.apply(
-        lambda row: f"{row['profit_rate']*100:+.2f}% ({row['pnl']:+,.0f} KRW)", axis=1
-    )
-    df['Sell Price'] = df['sell_price'].apply(lambda x: f"{x:,.0f}")
-    df['Buy Price'] = df['buy_price'].apply(lambda x: f"{x:,.0f}")
-    
-    return df
+
 
     with tab4:
 
