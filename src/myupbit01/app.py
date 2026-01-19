@@ -505,7 +505,8 @@ def main():
                     profit_rate = (current_price - entry_price) / entry_price
                     
                 # Trailing Check
-                profit_target = float(config.get("PROFIT_TARGET", 0.005))
+                exit_cfg = config.get("exit_strategies", {})
+                profit_target = float(exit_cfg.get("trailing_stop_trigger", 0.012))
                 max_profit_rate = 0.0
                 if entry_price > 0:
                     max_profit_rate = (highest_price - entry_price) / entry_price
@@ -529,7 +530,7 @@ def main():
                 
                 with st.container(border=True):
                     # Header with Status Badge
-                    c_head1, c_head2 = st.columns([3, 1])
+                    c_head1, c_edit, c_panic = st.columns([2.5, 1.2, 0.8])
                     
                     # Custom HTML Badge
                     badge_html = f"""
@@ -568,10 +569,30 @@ def main():
                     c_head1.markdown(title_html, unsafe_allow_html=True)
                     
                     if status == "BUY_WAIT":
-                         if c_head2.button("🚫 취소 (Cancel)", key=f"cancel_{market}"):
+                         if c_panic.button("🚫 취소 (Cancel)", key=f"cancel_{market}"):
                              send_command("cancel_buy_order", market=market)
                     else:
-                        if c_head2.button("🚨 긴급 매도 (Panic)", key=f"panic_{market}"):
+                        # HOLDING
+                        # [NEW] Manual Sell Price Edit in Header
+                        with c_edit:
+                            with st.expander("✏️ 수정", expanded=False):
+                                sell_price_display = float(slot.get('sell_limit_price', 0))
+                                default_sp = sell_price_display if sell_price_display > 0 else current_price * 1.01
+                                new_sp = st.number_input(
+                                    "가격", 
+                                    value=float(default_sp), 
+                                    min_value=float(current_price * 0.5), 
+                                    step=0.0001 if default_sp < 100 else 1.0,
+                                    format="%.4f" if default_sp < 100 else "%.0f",
+                                    key=f"sp_input_head_{market}",
+                                    label_visibility="collapsed"
+                                )
+                                if st.button("수정", key=f"sp_btn_head_{market}"):
+                                    if new_sp > 0:
+                                        send_command("update_sell_order", market=market, price=new_sp)
+                                        st.success(f"{new_sp}")
+                        
+                        if c_panic.button("🚨 긴급 매도", key=f"panic_{market}"):
                             send_command("panic_sell", market=market)
 
                     c1, c2, c3, c4, c5 = st.columns(5)
@@ -647,25 +668,6 @@ def main():
                          
                          # Value: 9,933 KRW (10,000 KRW)
                          c5.metric("평가총금액 (Value)", f"{current_value:,.0f} KRW ({invested_amount:,.0f} KRW)", f"{current_value - invested_amount:,.0f} KRW")
-                         
-                         # [NEW] Manual Sell Price Edit
-                         with st.expander("✏️ 매도 예약 수정 (Edit Target)"):
-                             default_sp = sell_price_display if sell_price_display > 0 else current_price * 1.01
-                             new_sp = st.number_input(
-                                 "New Price (새로운 매도 가격)", 
-                                 value=float(default_sp), 
-                                 min_value=float(current_price * 0.5), # Safety min
-                                 step=0.0001 if default_sp < 100 else 1.0,
-                                 format="%.4f" if default_sp < 100 else "%.0f",
-                                 key=f"sp_input_{market}"
-                             )
-                             
-                             if st.button("🔄 수정 반영 (Update)", key=f"sp_btn_{market}"):
-                                 if new_sp > 0:
-                                     send_command("update_sell_order", market=market, price=new_sp)
-                                     st.success(f"매도 가격 업데이트 요청: {new_sp}")
-                                 else:
-                                     st.error("유효하지 않은 가격입니다.")
                          
                     else:
                         # BUY_WAIT
