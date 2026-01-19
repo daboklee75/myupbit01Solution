@@ -868,6 +868,39 @@ class AutoTrader:
                             self.remove_slot(target_slot, cooldown=False) 
                         else:
                             self.log(f"COMMAND FAILED: Slot not found or not in BUY_WAIT for {market}")
+
+                    elif cmd_type == 'update_sell_order':
+                        market = cmd_data.get('market')
+                        new_price = float(cmd_data.get('price', 0))
+                        
+                        self.log(f"COMMAND: Update Sell Order for {market} to {new_price}")
+                        active_slots = self.state.get('slots', [])
+                        target_slot = next((s for s in active_slots if s['market'] == market), None)
+                        
+                        if target_slot and target_slot['status'] == 'HOLDING':
+                             # 1. Cancel existing
+                             if target_slot.get('sell_order_uuid'):
+                                 self.upbit.cancel_order(target_slot['sell_order_uuid'])
+                                 time.sleep(1)
+                             
+                             # 2. Place new order
+                             balance = self.upbit.get_balance(market)
+                             if balance > 0:
+                                 # Tick size adjustment
+                                 final_price = self.get_tick_size(new_price) * round(new_price / self.get_tick_size(new_price))
+                                 ret = self.upbit.sell_limit_order(market, final_price, balance)
+                                 
+                                 if ret and 'uuid' in ret:
+                                     target_slot['sell_order_uuid'] = ret['uuid']
+                                     target_slot['sell_limit_price'] = final_price
+                                     self.log(f"Updated Sell Limit for {market} to {final_price}")
+                                     self.save_state()
+                                 else:
+                                     self.log(f"Failed to place new sell limit: {ret}")
+                             else:
+                                 self.log("Insufficient balance for update.")
+                        else:
+                             self.log(f"Slot not found or not HOLDING for {market}")
                 
                 os.remove(COMMAND_FILE)
             except Exception as e:

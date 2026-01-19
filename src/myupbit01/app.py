@@ -648,6 +648,25 @@ def main():
                          # Value: 9,933 KRW (10,000 KRW)
                          c5.metric("평가총금액 (Value)", f"{current_value:,.0f} KRW ({invested_amount:,.0f} KRW)", f"{current_value - invested_amount:,.0f} KRW")
                          
+                         # [NEW] Manual Sell Price Edit
+                         with st.expander("✏️ 매도 예약 수정 (Edit Target)"):
+                             default_sp = sell_price_display if sell_price_display > 0 else current_price * 1.01
+                             new_sp = st.number_input(
+                                 "New Price (새로운 매도 가격)", 
+                                 value=float(default_sp), 
+                                 min_value=float(current_price * 0.5), # Safety min
+                                 step=0.0001 if default_sp < 100 else 1.0,
+                                 format="%.4f" if default_sp < 100 else "%.0f",
+                                 key=f"sp_input_{market}"
+                             )
+                             
+                             if st.button("🔄 수정 반영 (Update)", key=f"sp_btn_{market}"):
+                                 if new_sp > 0:
+                                     send_command("update_sell_order", market=market, price=new_sp)
+                                     st.success(f"매도 가격 업데이트 요청: {new_sp}")
+                                 else:
+                                     st.error("유효하지 않은 가격입니다.")
+                         
                     else:
                         # BUY_WAIT
                         limit_price = float(slot.get('limit_price', entry_price))
