@@ -606,7 +606,6 @@ def main():
         except Exception as e:
             st.error(f"Error fetching balances: {e}")
 
-
 @st.cache_data(ttl=60)
 def process_history_data(history, trade_amt_default):
     """
@@ -657,9 +656,8 @@ def process_history_data(history, trade_amt_default):
     
     return df
 
-# ... inside main() ...
-
     with tab4:
+
         st.subheader("Daily History")
         
         if isinstance(history, list) and history:
