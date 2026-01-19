@@ -443,7 +443,7 @@ def main():
                     
                     # Common Metrics
                     c1.metric("수익률 (Return)", f"{profit_rate*100:.2f}%")
-                         c2.metric("현재가 (Price)", f"{current_price:,.4f}") # Removed high price
+                    c2.metric("현재가 (Price)", f"{current_price:,.4f}") # Removed high price
                     
                     if status == "HOLDING":
                          
