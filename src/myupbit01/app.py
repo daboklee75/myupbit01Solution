@@ -443,13 +443,30 @@ def main():
                     
                     # Common Metrics
                     c1.metric("수익률 (Return)", f"{profit_rate*100:.2f}%")
-                    c2.metric("현재가 (Price)", f"{current_price:,.4f}") # Removed high price
+                         c2.metric("현재가 (Price)", f"{current_price:,.4f}") # Removed high price
                     
                     if status == "HOLDING":
                          
                          entry_cnt = slot.get('entry_cnt', 1)
-                         if entry_cnt > 1:
-                             # Multi-step
+                         trade_log = slot.get('trade_history_log', [])
+                         
+                         sub_text = ""
+                         if trade_log:
+                             # Format: Init: 01.19(74) / Add 01.19(66)
+                             parts = []
+                             for item in trade_log:
+                                 t_type = item.get('type', 'Buy') # Init or Add
+                                 t_price = float(item.get('price', 0))
+                                 t_time = item.get('time', '') # MM.DD
+                                 
+                                 # Format price (int or float)
+                                 p_str = f"{t_price:,.0f}" if t_price >= 100 else f"{t_price:,.2f}"
+                                 
+                                 parts.append(f"{t_type} {t_time}({p_str})")
+                                 
+                             sub_text = " / ".join(parts)
+                         elif entry_cnt > 1:
+                             # Legacy Fallback
                              init_p = float(slot.get('initial_buy_price', entry_price))
                              water_p = float(slot.get('water_buy_price', 0))
                              
@@ -457,10 +474,10 @@ def main():
                                  sub_text = f"Init:{init_p:,.0f}/Add:{water_p:,.0f}"
                              else:
                                  sub_text = f"Initial: {init_p:,.0f}"
-                                 
-                             c3.metric("매수가 (평단/상세)", f"{entry_price:,.4f}", sub_text, delta_color="off")
                          else:
-                             c3.metric("매수가 (Buy)", f"{entry_price:,.4f}")
+                             sub_text = "Initial Entry"
+                                 
+                         c3.metric("매수가 (평단/상세)", f"{entry_price:,.4f}", sub_text, delta_color="off")
                          
                          sell_price_display = float(slot.get('sell_limit_price', 0))
                          sell_msg = "-"
@@ -589,118 +606,124 @@ def main():
         except Exception as e:
             st.error(f"Error fetching balances: {e}")
 
+
+@st.cache_data(ttl=60)
+def process_history_data(history, trade_amt_default):
+    """
+    Process raw history data into a DataFrame with calculated metrics.
+    Cached to avoid re-calculation on every render.
+    """
+    if not history:
+        return pd.DataFrame()
+        
+    df = pd.DataFrame(history)
+    
+    # 1. Date Conversion
+    if 'date' in df.columns:
+        df['date_dt'] = pd.to_datetime(df['date']).dt.date
+    
+    # 2. PnL Calculation
+    if 'pnl' not in df.columns:
+        df['pnl'] = df['profit_rate'] * trade_amt_default
+        
+    # 3. Sell Price Calculation
+    if 'sell_price' not in df.columns:
+        df['sell_price'] = df['buy_price'] * (1 + df['profit_rate'])
+        
+    # 4. Analysis Generation
+    def generate_analysis(row):
+        reason = row.get('reason', '')
+        pnl_rate = row.get('profit_rate', 0)
+        
+        if "Trailing Stop" in reason:
+            return "🟢 [성공] 목표 수익 도달 후 익절"
+        elif "Stop Loss" in reason:
+            return "🔴 [손절] 손실 제한 매도 실행"
+        elif "Sudden Drop" in reason:
+            return "🛡️ [방어] 급락 감지되어 긴급 매도"
+        elif pnl_rate > 0:
+            return "🟢 [익절] 수익 실현"
+        else:
+            return "⚪ [매도] 기타 사유"
+            
+    df['Analysis'] = df.apply(generate_analysis, axis=1)
+    
+    # 5. Formatting
+    df['Return (%)'] = df.apply(
+        lambda row: f"{row['profit_rate']*100:+.2f}% ({row['pnl']:+,.0f} KRW)", axis=1
+    )
+    df['Sell Price'] = df['sell_price'].apply(lambda x: f"{x:,.0f}")
+    df['Buy Price'] = df['buy_price'].apply(lambda x: f"{x:,.0f}")
+    
+    return df
+
+# ... inside main() ...
+
     with tab4:
         st.subheader("Daily History")
+        
         if isinstance(history, list) and history:
-            df_hist = pd.DataFrame(history)
+            # Date Input (Default: Today)
+            today = datetime.date.today()
+            col_d1, col_d2 = st.columns([1, 2])
             
-            # [NEW] Date Filtering
-            # Ensure date column is datetime or comparable string. 'date' is YYYY-MM-DD string.
-            if 'date' in df_hist.columns:
-                df_hist['date_dt'] = pd.to_datetime(df_hist['date']).dt.date
-                
-                # Date Input (Default: Today)
-                today = datetime.date.today()
-                col_d1, col_d2 = st.columns([1, 2])
-                
-                with col_d1:
-                    # Single date or range? User asked for "Period or Date".
-                    # Let's provide a mode selector or just a date input that accepts range.
-                    # st.date_input with tuple logs range.
-                    selected_date = st.date_input(
-                        "📅 날짜 선택 (Period Selection)", 
-                        (today, today), # Default range: Today only
-                        format="YYYY-MM-DD"
-                    )
-                
-                # Filter Logic
-                if isinstance(selected_date, tuple):
-                    if len(selected_date) == 2:
-                        start_date, end_date = selected_date
-                        mask = (df_hist['date_dt'] >= start_date) & (df_hist['date_dt'] <= end_date)
-                        df_filtered = df_hist.loc[mask]
-                        date_label = f"{start_date} ~ {end_date}"
-                    elif len(selected_date) == 1:
-                        start_date = selected_date[0]
-                        mask = df_hist['date_dt'] == start_date
-                        df_filtered = df_hist.loc[mask]
-                        date_label = f"{start_date}"
-                    else:
-                        df_filtered = df_hist
-                        date_label = "All Time"
-                else:
-                    # Single date
-                    mask = df_hist['date_dt'] == selected_date
-                    df_filtered = df_hist.loc[mask]
-                    date_label = f"{selected_date}"
-            else:
-                df_filtered = df_hist
-                date_label = "Total"
-
-            # [NEW] Aggregated Stats (Filtered)
-            # Fix: Calculate PnL if missing (Backward Compatibility)
-            if 'pnl' not in df_filtered.columns:
-                 # Estimate based on config TRADE_AMOUNT
-                 trade_amt = float(config.get("TRADE_AMOUNT", 10000))
-                 df_filtered['pnl'] = df_filtered['profit_rate'] * trade_amt
-
-            total_pnl = df_filtered['pnl'].sum() if not df_filtered.empty else 0
-            total_trades = len(df_filtered)
-            wins = len(df_filtered[df_filtered['pnl'] > 0]) if not df_filtered.empty else 0
-            win_rate = (wins / total_trades * 100) if total_trades > 0 else 0.0
-
-            # Display Stats
-            st.markdown(f"### 📈 수익 요약 ({date_label})")
-            col_s1, col_s2, col_s3 = st.columns(3)
-            col_s1.metric("총 손익 (Net PnL)", f"{total_pnl:,.0f} KRW", delta_color="normal")
-            col_s2.metric("총 거래 횟수", f"{total_trades}회")
-            col_s3.metric("승률 (Win Rate)", f"{win_rate:.1f}%")
-            
-            st.divider()
-
-            # Function to generate analysis comment
-            def generate_analysis(row):
-                reason = row.get('reason', '')
-                pnl_rate = row.get('profit_rate', 0)
-                
-                if "Trailing Stop" in reason:
-                    return "🟢 [성공] 목표 수익 도달 후 익절"
-                elif "Stop Loss" in reason:
-                    return "🔴 [손절] 손실 제한 매도 실행"
-                elif "Sudden Drop" in reason:
-                    return "🛡️ [방어] 급락 감지되어 긴급 매도"
-                elif pnl_rate > 0:
-                    return "🟢 [익절] 수익 실현"
-                else:
-                    return "⚪ [매도] 기타 사유"
-
-            # Apply Value Additions
-            if not df_filtered.empty:
-                df_filtered = df_filtered.copy() # Avoid SettingWithCopyWarning
-                df_filtered['Analysis'] = df_filtered.apply(generate_analysis, axis=1)
-                
-                # Fix: Calculate sell_price if missing
-                if 'sell_price' not in df_filtered.columns:
-                     df_filtered['sell_price'] = df_filtered['buy_price'] * (1 + df_filtered['profit_rate'])
-                
-                # Format Return column: +0.50% (+50 KRW)
-                df_filtered['Return (%)'] = df_filtered.apply(
-                    lambda row: f"{row['profit_rate']*100:+.2f}% ({row['pnl']:+,.0f} KRW)", axis=1
+            with col_d1:
+                selected_date = st.date_input(
+                    "📅 날짜 선택 (Period Selection)", 
+                    (today, today),
+                    format="YYYY-MM-DD"
                 )
+            
+            # Call Cached Processor
+            trade_amt_default = float(config.get("TRADE_AMOUNT", 10000))
+            df_processed = process_history_data(history, trade_amt_default)
+            
+            if not df_processed.empty:
+                # Filter Logic (Fast filtering on processed DF)
+                if 'date_dt' in df_processed.columns:
+                    if isinstance(selected_date, tuple):
+                        if len(selected_date) == 2:
+                            start, end = selected_date
+                            mask = (df_processed['date_dt'] >= start) & (df_processed['date_dt'] <= end)
+                        elif len(selected_date) == 1:
+                            mask = df_processed['date_dt'] == selected_date[0]
+                        else:
+                            mask = pd.Series([True] * len(df_processed))
+                    else:
+                        mask = df_processed['date_dt'] == selected_date
+                        
+                    df_filtered = df_processed.loc[mask]
+                    date_label = str(selected_date)
+                else:
+                    df_filtered = df_processed
+                    date_label = "Total"
+
+                # Aggregated Stats
+                total_pnl = df_filtered['pnl'].sum()
+                total_trades = len(df_filtered)
+                wins = len(df_filtered[df_filtered['pnl'] > 0])
+                win_rate = (wins / total_trades * 100) if total_trades > 0 else 0.0
+
+                st.markdown(f"### 📈 수익 요약 ({date_label})")
+                col_s1, col_s2, col_s3 = st.columns(3)
+                col_s1.metric("총 손익 (Net PnL)", f"{total_pnl:,.0f} KRW", delta_color="normal")
+                col_s2.metric("총 거래 횟수", f"{total_trades}회")
+                col_s3.metric("승률 (Win Rate)", f"{win_rate:.1f}%")
                 
-                # df_filtered['PnL (KRW)'] = df_filtered['pnl'].apply(lambda x: f"{x:,.0f}") # Removed
-                df_filtered['Sell Price'] = df_filtered['sell_price'].apply(lambda x: f"{x:,.0f}")
-                df_filtered['Buy Price'] = df_filtered['buy_price'].apply(lambda x: f"{x:,.0f}")
-                
-                # Select and Rename Columns
+                st.divider()
+
+                # Display Table
                 display_cols = ['time', 'market', 'Analysis', 'Return (%)', 'reason', 'Buy Price', 'Sell Price']
-                df_final = df_filtered[display_cols].rename(columns={
+                # Renaissance cols if needed (processed df already has formatting)
+                df_final = df_filtered.rename(columns={
                     'time': 'Time', 'market': 'Market', 'reason': 'Reason'
                 })
+                # Check column existence before select
+                final_cols = [c for c in ['Time', 'Market', 'Analysis', 'Return (%)', 'Reason', 'Buy Price', 'Sell Price'] if c in df_final.columns]
                 
-                st.dataframe(df_final.sort_values('Time', ascending=False), use_container_width=True)
+                st.dataframe(df_final[final_cols].sort_values('Time', ascending=False), use_container_width=True)
             else:
-                 st.info(f"No trades found for {date_label}.")
+                st.info("No processed data available.")
         else:
             st.info("No history.")
 

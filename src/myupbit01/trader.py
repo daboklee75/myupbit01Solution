@@ -433,26 +433,27 @@ class AutoTrader:
                 
                 slot['status'] = "HOLDING"
                 slot['avg_buy_price'] = avg_price
-                slot['initial_buy_price'] = avg_price # [NEW] Store initial price
+                slot['initial_buy_price'] = avg_price 
                 slot['entry_time'] = datetime.datetime.now().isoformat()
-                slot['entry_cnt'] = 1 # Initial Entry counted as 1
+                slot['entry_cnt'] = 1 
                 slot['highest_price'] = avg_price
                 slot['sell_order_uuid'] = None
+                
+                # [NEW] Detailed Trade History Log for UI
+                # Format: {"type": "Init", "price": avg_price, "time": "MM.DD"}
+                slot['trade_history_log'] = [{
+                    "type": "Init",
+                    "price": avg_price,
+                    "time": datetime.datetime.now().strftime("%m.%d")
+                }]
                 
                 # IMMEDIATE ACTION: Place Sell Limit at 3H High
                 self.place_profit_limit(slot)
                 self.save_state()
             
             elif state == 'wait':
-                 # Log progress if partially filled or just once in a while?
-                 # To avoid spam, maybe only if changed? or use debug log.
-                 # For now, let's log if executed_volume > 0
-                 # executed_vol = float(order.get('executed_volume', 0))
-                 # if executed_vol > 0:
-                 #    self.log(f"Buy Order {market} Partial Fill: {executed_vol} volume executed.")
                  pass
 
-                
             elif state == 'cancel':
                 # External cancel or partial fill
                 executed_vol = float(order.get('executed_volume', 0))
@@ -461,14 +462,22 @@ class AutoTrader:
                     if executed_funds > 0:
                         avg_price = executed_funds / executed_vol
                     else:
-                        avg_price = float(order.get('price', slot['limit_price'])) # Fallback
+                        avg_price = float(order.get('price', slot['limit_price']))
                     self.log(f"Order canceled but partially filled for {market}. Managing position.")
                     slot['status'] = "HOLDING"
                     slot['avg_buy_price'] = avg_price
-                    slot['initial_buy_price'] = avg_price # [NEW]
+                    slot['initial_buy_price'] = avg_price
                     slot['entry_time'] = datetime.datetime.now().isoformat()
                     slot['highest_price'] = avg_price
                     slot['sell_order_uuid'] = None
+                    
+                    # [NEW] Trade History
+                    slot['trade_history_log'] = [{
+                        "type": "Init",
+                        "price": avg_price,
+                        "time": datetime.datetime.now().strftime("%m.%d")
+                    }]
+                    
                     self.place_profit_limit(slot)
                     self.save_state()
                 else:
@@ -504,7 +513,7 @@ class AutoTrader:
             ret = self.upbit.sell_limit_order(market, target_price, balance)
             if ret and 'uuid' in ret:
                 slot['sell_order_uuid'] = ret['uuid']
-                slot['sell_limit_price'] = target_price # [NEW] Save sell price
+                slot['sell_limit_price'] = target_price 
                 self.log(f"Placed Take Profit Limit for {market} at {target_price}")
             else:
                 self.log(f"Failed to place TP Limit for {market}: {ret}")
@@ -526,16 +535,13 @@ class AutoTrader:
             # Check Break-even
             break_even_trigger = self.config['exit_strategies'].get('break_even_trigger', 0.007)
             if profit_rate >= break_even_trigger:
-                 # Ensure we have a stop protected above entry
-                 # Logic handled in Stop Loss section via dynamic SL? 
-            # Let's check locally.
                  slot['is_break_even_active'] = True
                  
         self.save_state()
     
         # --- Add-Buy (Watering) Logic ---
         exit_cfg = self.config.get('exit_strategies', {})
-        add_buy_trigger = exit_cfg.get('add_buy_trigger', -1.0) # Default disabled if not set (or very low)
+        add_buy_trigger = exit_cfg.get('add_buy_trigger', -1.0) 
         max_add_buys = exit_cfg.get('max_add_buys', 0)
         current_entry_cnt = slot.get('entry_cnt', 1)
         
@@ -548,7 +554,7 @@ class AutoTrader:
                  # 1. Check Logic & Cancel Existing Sell Limit
                  if slot.get('sell_order_uuid'):
                      self.upbit.cancel_order(slot['sell_order_uuid'])
-                     time.sleep(1) # Wait for cancel
+                     time.sleep(1) 
                      
                  # 2. Buy Market
                  # 3. Check Balance (Dynamic Amount)
@@ -569,18 +575,16 @@ class AutoTrader:
                          # Re-fetch average price and balance (total volume)
                          avg_price = self.upbit.get_avg_buy_price(market)
                          
-                         # [NEW] Calculate Watering Price
+                         # Calculate Watering Price
                          water_price = 0
                          try:
                              order_info = self.upbit.get_order(ret['uuid'])
                              if order_info and 'trades' in order_info and len(order_info['trades']) > 0:
-                                 # Weighted avg of filled trades
                                  total_v = sum([float(t.get('volume',0)) for t in order_info['trades']])
                                  total_f = sum([float(t.get('funds',0)) for t in order_info['trades']])
                                  if total_v > 0: water_price = total_f / total_v
-                             elif order_info and 'price' in order_info: # Fallback
+                             elif order_info and 'price' in order_info: 
                                  water_price = float(order_info.get('price', 0) or 0)
-                                 # If market order, price might be None, check executed fields
                                  if water_price == 0 and float(order_info.get('executed_volume',0)) > 0:
                                       water_price = float(order_info.get('executed_funds',0)) / float(order_info.get('executed_volume',1))
                          except Exception as e:
@@ -588,19 +592,36 @@ class AutoTrader:
                          
                          slot['water_buy_price'] = water_price
                          
+                         self.log(f"Add-Buy Executed. New Avg Price: {avg_price}")
+
                          slot['avg_buy_price'] = avg_price
                          slot['entry_cnt'] = current_entry_cnt + 1
-                         slot['sell_order_uuid'] = None # Reset
-                         
-                         # [FIX] Reset highest_price to new avg_price to prevent premature trailing stop
+                         slot['sell_order_uuid'] = None 
                          slot['highest_price'] = avg_price
                          
-                         self.log(f"Add-Buy Executed. New Avg Price: {avg_price}")
+                         # [NEW] Append to Trade History Log
+                         if 'trade_history_log' not in slot:
+                             slot['trade_history_log'] = []
+                             
+                         # If it's the first time adding log but we already have init info (legacy support)
+                         if not slot['trade_history_log'] and slot.get('initial_buy_price'):
+                              # Try to guess init time or just use 'Init'
+                              slot['trade_history_log'].append({
+                                  "type": "Init",
+                                  "price": slot.get('initial_buy_price', 0),
+                                  "time": datetime.datetime.fromisoformat(slot.get('entry_time', datetime.datetime.now().isoformat())).strftime("%m.%d")
+                              })
+
+                         slot['trade_history_log'].append({
+                             "type": "Add",
+                             "price": water_price if water_price > 0 else avg_price, # Fallback
+                             "time": datetime.datetime.now().strftime("%m.%d")
+                         })
                          
                          # 5. Re-place Profit Limit
                          self.place_profit_limit(slot)
                          self.save_state()
-                         return # Exit manage_holding to avoid selling immediately
+                         return 
                      else:
                          self.log(f"Add-Buy Failed: {ret}")
                  else:
