@@ -691,7 +691,7 @@ def main():
                              # Show Init price same as entry price
                              sub_text = f"Init({fmt_p(entry_price)})"
                                  
-                         c3.metric("매수가 (평단/상세)", f"{entry_price:,.4f}", sub_text, delta_color="off")
+                         c3.metric("매수가 (평단)", f"{entry_price:,.4f}")
                          
                          sell_price_display = float(slot.get('sell_limit_price', 0))
                          sell_msg = "-"
@@ -711,6 +711,9 @@ def main():
                          
                          # Value: 9,933 KRW (10,000 KRW)
                          c5.metric("평가총금액 (Value)", f"{current_value:,.0f} KRW ({invested_amount:,.0f} KRW)", f"{current_value - invested_amount:,.0f} KRW")
+                    
+                    if sub_text:
+                        st.caption(f"📝 {sub_text}")
                          
                     else:
                         # BUY_WAIT
