@@ -467,6 +467,11 @@ def main():
             except Exception as e:
                 st.error(f"Wallet Fetch Error: {e}")
 
+            # 1. Pre-calculate Totals & Prepare Data
+            total_invested_all = 0.0
+            total_current_all = 0.0
+            slot_display_data = []
+
             for slot in slots:
                 market = slot.get('market')
                 status = slot.get('status')
@@ -496,6 +501,44 @@ def main():
                 invested_amount = balance * avg_price
                 current_value = balance * current_price
                 
+                # Add to Totals
+                total_invested_all += invested_amount
+                total_current_all += current_value
+
+                # Store for rendering
+                slot_display_data.append({
+                    "slot": slot,
+                    "market": market,
+                    "status": status,
+                    "avg_price": avg_price,
+                    "current_price": current_price,
+                    "balance": balance,
+                    "invested_amount": invested_amount,
+                    "current_value": current_value
+                })
+
+            # 2. Display Totals Header
+            tot_c1, tot_c2, tot_c3 = st.columns(3)
+            tot_c1.metric("총 매수금액 (Total Invested)", f"{total_invested_all:,.0f} KRW")
+            tot_c2.metric("총 평가금액 (Total Value)", f"{total_current_all:,.0f} KRW")
+            
+            total_pnl_val = total_current_all - total_invested_all
+            total_pnl_rate = (total_pnl_val / total_invested_all * 100) if total_invested_all > 0 else 0
+            tot_c3.metric("총 평가손익 (Total PnL)", f"{total_pnl_val:+,.0f} KRW", f"{total_pnl_rate:+.2f}%")
+            
+            st.divider()
+
+            # 3. Render Individual Slots
+            for data in slot_display_data:
+                slot = data["slot"]
+                market = data["market"]
+                status = data["status"]
+                avg_price = data["avg_price"]
+                current_price = data["current_price"]
+                balance = data["balance"]
+                invested_amount = data["invested_amount"]
+                current_value = data["current_value"]
+
                 # Calculate Profit & Trailing Info
                 entry_price = float(slot.get('avg_buy_price', 0))
                 highest_price = float(slot.get('highest_price', entry_price)) # Need to ensure trader saves this
